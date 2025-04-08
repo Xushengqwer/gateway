@@ -1,0 +1,36 @@
+#示例
+listenAddr: ":8080"
+timeout: 10s
+jwtConfig:
+  secret_key: "your-access-secret"
+  issuer: "gateway"
+  refresh_secret: "your-refresh-secret"
+zapConfig:
+  level: "info"
+  encoding: "json"
+  output_path: "stdout"
+  error_output: "stderr"
+rateLimitConfig:
+  capacity: 100
+  refill_interval: 1s
+  cleanup_interval: 5m
+  idle_timeout: 10m
+services:
+  - name: "user-service"
+    host: "user-service"
+    port: 8080
+    prefix: "/api/user"
+    routes:
+      - path: /users
+        allowedRoles:
+           - Admin
+           - User
+      - path: /admin
+        allowedRoles:
+        - Admin
+  - name: "post-service"
+    host: "post-service"
+    port: 8081
+    prefix: "/api/post"
+    allowedRoles:
+      - "admin"
