@@ -1,15 +1,23 @@
+<div align="center">
+
 # 网关服务 (Gateway Service)
 
-![Gateway Service](https://raw.githubusercontent.com/xushengawyer/gateway-service/master/docs/images/logo.png)
+</div>
+
+<div align="center">
 
 ![GitHub Stars](https://img.shields.io/github/stars/xushengawyer/gateway-service?style=social)
 ![GitHub go.mod Go 版本](https://img.shields.io/github/go-mod/go-version/xushengawyer/gateway-service)
 ![GitHub 许可证](https://img.shields.io/github/license/xushengawyer/gateway-service)
 ![GitHub 最后提交](https://img.shields.io/github/last-commit/xushengawyer/gateway-service)
 
-**网关服务** 是一个高性能的 **API 网关**，基于 **Go 语言** 开发，专为微服务架构设计。它提供统一的入口，支持 **请求路由**、**认证授权**、**速率限制**、**日志记录**、**跨域请求**、**全局请求 ID** 和 **简易请求链路追踪** 等功能。适用于多种场景（如 **Web**、**App**、**微信**），支持单机部署和 **Kubernetes (K8S)** 环境。
+</div>
 
----
+<div align="center">
+<img src="https://raw.githubusercontent.com/xushengawyer/gateway-service/master/docs/images/logo.png" width="300" height="200"/>
+</div>
+
+**网关服务** 是一个高性能的 **API 网关**，基于 **Go 语言** 开发，专为微服务架构设计。它提供统一的入口，支持 **请求路由**、**认证授权**、**速率限制**、**日志记录**、**跨域请求**、**全局请求 ID** 和 **简易请求链路追踪** 等功能。适用于多种场景（如 **Web**、**App**、**微信**），支持单机部署和 **Kubernetes (K8S)** 环境。
 
 ## 目录
 
@@ -29,8 +37,6 @@
 - [如何贡献](#如何贡献)
 - [许可证](#许可证)
 
----
-
 ## 项目概述
 
 **网关服务** 是一个轻量级、高性能的 API 网关，旨在为微服务架构提供统一的入口点。它通过反向代理将客户端请求路由到下游服务，同时提供以下功能：
@@ -42,8 +48,6 @@
 - **请求链路追踪**：记录请求流转详情，分析服务间耗时。
 
 网关服务基于 **Go 语言** 和 **Gin 框架** 开发，结合 **Zap 日志**、**JWT 认证** 等技术，支持单机部署和 K8S 集群环境。
-
----
 
 ## 架构与原理
 
@@ -67,8 +71,6 @@
 - **K8S 兼容**：无缝集成 K8S，支持 ConfigMap、Secret 和动态配置。
 - **高性能**：基于 Go 和 Gin 框架，延迟低、吞吐量高。
 
----
-
 ## 功能特性
 
 - **请求路由**：根据 URL 前缀（如 `/api/user`）路由到下游服务（如 `user-service`）。
@@ -78,8 +80,6 @@
 - **结构化日志**：以 JSON 格式记录请求和错误，兼容 K8S 日志系统。
 - **动态配置**：支持 YAML 文件、环境变量和 K8S ConfigMap 加载配置，支持热加载。
 - **健康检查**：提供 `/health` 端点用于服务状态监控。
-
----
 
 ## 使用方法
 
@@ -96,6 +96,7 @@
 ### 安装步骤
 
 1. **克隆仓库**：
+
    ```bash
    git clone https://github.com/xushengawyer/gateway-service.git
    cd gateway-service
