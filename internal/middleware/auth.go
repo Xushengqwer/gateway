@@ -3,10 +3,11 @@ package middleware
 import (
 	"errors"
 	"fmt"
-	"gateway/internal/core"
-	"gateway/pkg/constant"
-	"gateway/pkg/enums"
-	"gateway/pkg/response"
+	"github.com/Xushengqwer/gateway/internal/core"
+	"github.com/Xushengqwer/gateway/pkg/constant"
+	"github.com/Xushengqwer/gateway/pkg/enums"
+	"github.com/Xushengqwer/gateway/pkg/response"
+
 	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"strings"

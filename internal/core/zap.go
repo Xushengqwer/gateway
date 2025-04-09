@@ -2,9 +2,9 @@ package core
 
 import (
 	"fmt"
+	"github.com/Xushengqwer/gateway/internal/config"
 	"os"
 
-	"gateway/internal/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

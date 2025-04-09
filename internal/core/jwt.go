@@ -3,8 +3,9 @@ package core
 import (
 	"errors"
 	"fmt"
-	"gateway/internal/config"
-	"gateway/pkg/enums"
+	"github.com/Xushengqwer/gateway/internal/config"
+	"github.com/Xushengqwer/gateway/pkg/enums"
+
 	"go.uber.org/zap"
 
 	"github.com/golang-jwt/jwt/v5"

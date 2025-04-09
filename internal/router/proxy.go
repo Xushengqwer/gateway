@@ -2,16 +2,16 @@ package router
 
 import (
 	"fmt"
-	"gateway/internal/config" // 网关配置包
-	"gateway/internal/core"   // 核心工具包
-	mymiddleware "gateway/internal/middleware"
-	"gateway/pkg/constant"   // 常量包
-	"gateway/pkg/middleware" // 共享中间件包
-	"go.uber.org/zap"        // Zap 日志库
-	"net/http"               // HTTP 相关
-	"net/http/httputil"      // HTTP 工具包，用于反向代理
-	"net/url"                // URL 解析
-	"strings"                // 字符串操作
+	"github.com/Xushengqwer/gateway/internal/config"
+	"github.com/Xushengqwer/gateway/internal/core"
+	mymiddleware "github.com/Xushengqwer/gateway/internal/middleware"
+	"github.com/Xushengqwer/gateway/pkg/constant"
+	"github.com/Xushengqwer/gateway/pkg/middleware" // 共享中间件包
+	"go.uber.org/zap"                               // Zap 日志库
+	"net/http"                                      // HTTP 相关
+	"net/http/httputil"                             // HTTP 工具包，用于反向代理
+	"net/url"                                       // URL 解析
+	"strings"                                       // 字符串操作
 
 	"github.com/gin-gonic/gin" // Gin 框架
 )

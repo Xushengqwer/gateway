@@ -1,6 +1,6 @@
 package config
 
-import "gateway/pkg/enums"
+import "github.com/Xushengqwer/gateway/pkg/enums"
 
 //  todo 每个服务的接口需要在这里写需要什么角色才能访问，需要写一个配置文件
 

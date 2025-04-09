@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"gateway/internal/config"
-	"gateway/internal/core"
-	"gateway/pkg/response"
+	"github.com/Xushengqwer/gateway/internal/config"
+	"github.com/Xushengqwer/gateway/internal/core"
+	"github.com/Xushengqwer/gateway/pkg/response"
 	"net"
 	"net/http"
 	"strconv"

@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"gateway/pkg/constant"     // 常量定义
+	"github.com/Xushengqwer/gateway/pkg/constant"
 	"github.com/gin-gonic/gin" // Gin 框架
 	"github.com/google/uuid"   // UUID 生成
 	"go.uber.org/zap"          // Zap 日志

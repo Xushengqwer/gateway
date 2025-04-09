@@ -2,7 +2,8 @@ package core
 
 import (
 	"fmt"
-	"gateway/internal/config"
+	"github.com/Xushengqwer/gateway/internal/config"
+
 	"log"
 
 	"github.com/fsnotify/fsnotify"

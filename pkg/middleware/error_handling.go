@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"gateway/internal/core"
+	"github.com/Xushengqwer/gateway/internal/core"
 	"net/http"
 	"runtime/debug"
 

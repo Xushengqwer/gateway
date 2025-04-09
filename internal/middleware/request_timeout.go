@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"gateway/internal/core"
-	"gateway/pkg/constant"
-	"gateway/pkg/middleware"
+	"github.com/Xushengqwer/gateway/internal/core"
+	"github.com/Xushengqwer/gateway/pkg/constant"
+	"github.com/Xushengqwer/gateway/pkg/middleware"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"gateway/internal/core" // 网关的 ZapLogger
-	"gateway/pkg/middleware"
+	"github.com/Xushengqwer/gateway/internal/core"
+	"github.com/Xushengqwer/gateway/pkg/middleware"
 	"github.com/gin-gonic/gin"
 )
 

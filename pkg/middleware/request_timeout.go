@@ -2,7 +2,8 @@ package middleware
 
 import (
 	"context"
-	"gateway/internal/core"
+	"github.com/Xushengqwer/gateway/internal/core"
+
 	"net/http"
 	"time"
 

@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"gateway/pkg/constant" // 常量定义
-	"time"                 // 时间处理
+	"github.com/Xushengqwer/gateway/pkg/constant"
+	"time" // 时间处理
 
 	"github.com/gin-gonic/gin" // Gin 框架
 	"go.uber.org/zap"          // Zap 日志

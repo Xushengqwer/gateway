@@ -1,12 +1,12 @@
 package middleware
 
 import (
-	"gateway/internal/config" // 配置包，用于读取服务和权限规则
-	"gateway/pkg/constant"    // 常量定义，如上下文键
-	"gateway/pkg/enums"       // 枚举类型，如用户角色和状态
-	"gateway/pkg/response"    // 响应工具包
-	"net/http"                // HTTP 状态码和请求处理
-	"strings"                 // 字符串操作，用于路径匹配
+	"github.com/Xushengqwer/gateway/internal/config"
+	"github.com/Xushengqwer/gateway/pkg/constant"
+	"github.com/Xushengqwer/gateway/pkg/enums"
+	"github.com/Xushengqwer/gateway/pkg/response" // 响应工具包
+	"net/http"                                    // HTTP 状态码和请求处理
+	"strings"                                     // 字符串操作，用于路径匹配
 
 	"github.com/gin-gonic/gin" // Gin 框架
 )
