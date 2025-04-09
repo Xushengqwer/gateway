@@ -1,4 +1,4 @@
-module gateway
+module github.com/Xushengqwer/gateway
 
 go 1.23.0
 
