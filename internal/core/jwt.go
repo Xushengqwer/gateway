@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/Xushengqwer/gateway/internal/config"
 	"github.com/Xushengqwer/gateway/pkg/enums"
+	"github.com/Xushengqwer/go-common/core"
 
 	"go.uber.org/zap"
 
@@ -33,13 +34,13 @@ type CustomClaims struct {
 // JWTUtility 实现 JWTUtilityInterface 接口的结构体
 type JWTUtility struct {
 	cfg    *config.GatewayConfig // JWT 配置，包含密钥、发行者等信息
-	logger *ZapLogger            // 日志记录器，用于记录解析错误
+	logger *core.ZapLogger       // 日志记录器，用于记录解析错误
 }
 
 // NewJWTUtility 创建 JWTUtility 实例，通过依赖注入初始化
 // - 输入: cfg JWT 配置实例, logger ZapLogger 实例
 // - 输出: JWTUtilityInterface 接口实例
-func NewJWTUtility(cfg *config.GatewayConfig, logger *ZapLogger) JWTUtilityInterface {
+func NewJWTUtility(cfg *config.GatewayConfig, logger *core.ZapLogger) JWTUtilityInterface {
 	return &JWTUtility{cfg: cfg, logger: logger}
 }
 

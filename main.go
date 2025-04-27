@@ -1,98 +1,111 @@
+// 在 gateway/main.go
 package main
 
 import (
 	"context"
+	"errors" // 导入 errors
 	"flag"
 	"fmt"
-	"github.com/Xushengqwer/gateway/internal/core"
-	"github.com/Xushengqwer/gateway/internal/router"
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
+	"github.com/Xushengqwer/gateway/internal/constant"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/Xushengqwer/gateway/internal/config"
+	gatewayCore "github.com/Xushengqwer/gateway/internal/core" // 网关内部 core (JWT)
+	"github.com/Xushengqwer/gateway/internal/router"           // 网关内部 router
+	sharedCore "github.com/Xushengqwer/go-common/core"         // 共享库 core (Logger, Config)
+	sharedTracing "github.com/Xushengqwer/go-common/tracing"   // 共享库 tracing
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
+	// 导入 OTel HTTP Client Instrumentation
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
-	// 1. 解析命令行参数
+	var configFile string
+	flag.StringVar(&configFile, "config", "config/config.development.yaml", "Path to configuration file")
 	flag.Parse()
 
-	// 2. 初始化配置
-	configPath, _ := core.InitConfig()
-
-	// 3. 加载配置
-	cfg, err := core.LoadConfig(configPath)
-	if err != nil {
+	// --- 1. 加载配置 (修正) ---
+	var cfg config.GatewayConfig
+	if err := sharedCore.LoadConfig(configFile, &cfg); err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
-	// 打印配置，验证加载是否成功
-	fmt.Printf("Loaded config: %+v\n", cfg)
+	fmt.Printf("Loaded config: %+v\n", &cfg) // 打印指针地址内容
 
-	// 4. 使用配置初始化 ZapLogger
-	logger, err := core.NewZapLogger(cfg.ZapConfig)
+	// --- 2. 初始化 Logger (修正) ---
+	logger, err := sharedCore.NewZapLogger(cfg.ZapConfig)
 	if err != nil {
 		log.Fatalf("初始化 ZapLogger 失败: %v", err)
 	}
 	defer func() {
 		if err := logger.Logger().Sync(); err != nil {
-			logger.Error("ZapLogger Sync 失败: %v", zap.Error(err))
+			logger.Error("ZapLogger Sync 失败", zap.Error(err))
 		}
 	}()
 
-	// 3. 初始化 Gin 引擎
-	// - 创建 Gin 实例，设置为 Release 模式以提升性能
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.New()
+	// --- 3. 初始化 TracerProvider (如果启用) ---
+	var otelTransport http.RoundTripper = http.DefaultTransport // 默认 Transport
+	if cfg.TracerConfig.Enabled {
+		shutdownTracer, err := sharedTracing.InitTracerProvider(constant.ServiceName, constant.ServiceVersion, cfg.TracerConfig)
+		if err != nil {
+			logger.Fatal("初始化 TracerProvider 失败", zap.Error(err))
+		}
+		defer func() {
+			if err := shutdownTracer(context.Background()); err != nil {
+				logger.Error("关闭 TracerProvider 失败", zap.Error(err))
+			}
+		}()
+		logger.Info("分布式追踪已初始化")
 
-	// 4. 初始化JWT工具
-	// - 作用：解析
-	jwtUtility := core.NewJWTUtility(cfg, logger)
-
-	// 4. 设置代理路由
-	// - 调用 SetupProxyRoutes 配置路由转发和中间件
-	router.SetupProxyRoutes(r, cfg, logger, jwtUtility)
-
-	// 5. 添加健康检查端点
-	// - 提供 /health 端点，用于 Kubernetes 健康检查
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "healthy",
-		})
-	})
-
-	// 6. 创建 HTTP 服务器
-	// - 配置监听地址和处理程序
-	srv := &http.Server{
-		Addr:    cfg.ListenAddr, // 例如 ":8080"
-		Handler: r,
+		// --- 关键: 创建 OTel-instrumented Transport ---
+		// 这个 transport 将用于反向代理发出的请求
+		otelTransport = otelhttp.NewTransport(http.DefaultTransport)
+	} else {
+		logger.Info("分布式追踪已禁用")
 	}
 
-	// 7. 启动服务
-	// - 在协程中启动 HTTP 服务器
+	// --- 4. 初始化 Gin 引擎 ---
+	gin.SetMode(gin.ReleaseMode) // 或根据环境设置
+	r := gin.New()               // 使用 New() 以便完全控制中间件
+
+	// --- 5. 初始化 JWT 工具 ---
+	jwtUtility := gatewayCore.NewJWTUtility(&cfg, logger)
+
+	// --- 6. 设置路由和所有中间件 ---
+	// 将依赖项传递给路由设置函数
+	router.SetupRouter(r, &cfg, logger, jwtUtility, otelTransport) // <--- 调用新的设置函数
+
+	// --- 7. 创建 HTTP 服务器 ---
+	// 确保 cfg.Server.ListenAddr 在 GatewayConfig 中定义
+	srv := &http.Server{
+		Addr:    cfg.Server.ListenAddr,
+		Handler: r,
+		// 可以添加 ReadTimeout, WriteTimeout 等设置
+	}
+
+	// --- 8. 启动和优雅关闭 (保持不变) ---
 	go func() {
-		logger.Info("Starting gateway server", zap.String("addr", cfg.ListenAddr))
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Info("Starting gateway server", zap.String("addr", cfg.Server.ListenAddr))
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
 
-	// 8. 优雅关闭
-	// - 监听系统信号（SIGINT、SIGTERM），实现优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	logger.Info("Shutting down gateway server...")
 
-	// 9. 设置关闭超时
-	// - 等待 5 秒以完成正在处理的请求
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // 使用 cfg.Server.ShutdownTimeout
 	defer cancel()
 
-	// 10. 关闭服务器
-	// - 调用 Shutdown 优雅关闭 HTTP 服务器
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Error("Server shutdown failed", zap.Error(err))
 	}

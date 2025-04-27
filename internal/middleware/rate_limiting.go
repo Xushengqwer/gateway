@@ -2,8 +2,9 @@ package middleware
 
 import (
 	"github.com/Xushengqwer/gateway/internal/config"
-	"github.com/Xushengqwer/gateway/internal/core"
+
 	"github.com/Xushengqwer/gateway/pkg/response"
+	sharedCore "github.com/Xushengqwer/go-common/core"
 	"net"
 	"net/http"
 	"strconv"
@@ -79,7 +80,7 @@ func (rl *RateLimiter) GetLastAccessed() time.Time {
 // RateLimitMiddleware 定义限流中间件，用于限制每个 IP 的请求频率
 // - 输入: logger ZapLogger 实例用于日志记录, cfg RateLimitConfig 配置限流参数
 // - 输出: gin.HandlerFunc 中间件函数
-func RateLimitMiddleware(logger *core.ZapLogger, cfg *config.RateLimitConfig) gin.HandlerFunc {
+func RateLimitMiddleware(logger *sharedCore.ZapLogger, cfg *config.RateLimitConfig) gin.HandlerFunc {
 	// 1. 初始化 IP 到 RateLimiter 的映射
 	// - 使用 sync.Map 存储每个 IP 的限流器实例
 	var rateLimiters sync.Map

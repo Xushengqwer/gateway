@@ -1,43 +1,36 @@
 package middleware
 
 import (
+	"github.com/Xushengqwer/gateway/internal/config" // 导入配置包
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"time" // 需要导入 time
 )
 
-// CorsMiddleware 设置跨域中间件
-// - 输出: gin.HandlerFunc 中间件函数，用于处理跨域请求
-func CorsMiddleware() gin.HandlerFunc {
+// CorsMiddleware 设置跨域中间件 (从配置加载)
+func CorsMiddleware(cfg config.CorsConfig) gin.HandlerFunc { // 接收 CorsConfig
+	// 如果配置中未提供值，可以使用默认值
+	if len(cfg.AllowOrigins) == 0 {
+		// 警告或设置一个非常严格的默认值，或者允许所有（不推荐用于生产）
+		// cfg.AllowOrigins = []string{"*"} // 谨慎使用
+		cfg.AllowOrigins = []string{} // 或者不允许任何跨域作为默认？
+	}
+	if len(cfg.AllowMethods) == 0 {
+		cfg.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	}
+	if len(cfg.AllowHeaders) == 0 {
+		cfg.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"}
+	}
+	maxAgeDuration := time.Duration(cfg.MaxAge) * time.Second
+	if cfg.MaxAge == 0 {
+		maxAgeDuration = 12 * time.Hour // 默认 12 小时
+	}
+
 	return cors.New(cors.Config{
-		// 允许跨域请求的来源
-		// - 指定允许的域名列表，可以根据环境动态调整
-		AllowOrigins: []string{
-			"http://localhost:8000", // 开发环境：允许本地前端请求
-			// 可添加生产环境域名，例如：
-			// "https://yourproductiondomain.com",
-		},
-		// 允许的 HTTP 请求方法
-		// - 支持常见的 RESTful 方法
-		AllowMethods: []string{
-			"GET",     // 查询请求
-			"POST",    // 创建请求
-			"PUT",     // 更新请求
-			"DELETE",  // 删除请求
-			"OPTIONS", // 预检请求
-		},
-		// 允许的请求头
-		// - 指定客户端可以发送的自定义头
-		AllowHeaders: []string{
-			"Origin",           // 请求来源
-			"Content-Type",     // 请求内容类型
-			"Authorization",    // 认证令牌
-			"X-Requested-With", // AJAX 请求标识
-		},
-		// 是否允许携带凭证
-		// - 设置为 true 以支持 Cookie 或认证头跨域
-		AllowCredentials: true,
-		// 预检请求缓存时间（单位：秒）
-		// - 设置为 12 小时（12 * 3600 秒）
-		MaxAge: 12 * 3600,
+		AllowOrigins:     cfg.AllowOrigins,     // 使用配置的值
+		AllowMethods:     cfg.AllowMethods,     // 使用配置的值
+		AllowHeaders:     cfg.AllowHeaders,     // 使用配置的值
+		AllowCredentials: cfg.AllowCredentials, // 使用配置的值
+		MaxAge:           maxAgeDuration,       // 使用计算后的 Duration
 	})
 }

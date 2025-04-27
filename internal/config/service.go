@@ -20,7 +20,7 @@ type ServiceConfig struct {
 	Scheme      string        `yaml:"scheme,omitempty"`      // 协议（http 或 https，默认 http）
 	Prefix      string        `yaml:"prefix"`                // 服务路径前缀，示例api/v1
 	Routes      []RouteConfig `yaml:"routes,omitempty"`      // 基于路径的权限（可选）
-	PublicPaths []string      `yaml:"publicPaths,omitempty"` // 新增字段
+	PublicPaths []string      `yaml:"publicPaths,omitempty"` // 公共组路由
 }
 
 // Config 定义网关的整体配置
