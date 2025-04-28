@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Xushengqwer/gateway/internal/config"
-	"github.com/Xushengqwer/gateway/pkg/enums"
 	"github.com/Xushengqwer/go-common/core"
+	"github.com/Xushengqwer/go-common/models/enums"
 
 	"go.uber.org/zap"
 

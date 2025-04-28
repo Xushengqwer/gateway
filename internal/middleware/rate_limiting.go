@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"github.com/Xushengqwer/gateway/internal/config"
+	"github.com/Xushengqwer/go-common/response"
 
-	"github.com/Xushengqwer/gateway/pkg/response"
 	sharedCore "github.com/Xushengqwer/go-common/core"
 	"net"
 	"net/http"

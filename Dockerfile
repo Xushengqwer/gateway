@@ -26,7 +26,7 @@ WORKDIR /app
 COPY --from=builder /app/gateway .
 
 # 复制配置文件（如果有）
-COPY config/config.yaml /app/config/config.yaml
+COPY config/development.yaml /app/config/config.yaml
 
 # 暴露端口
 EXPOSE 8080

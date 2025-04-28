@@ -1,0 +1,45 @@
+# 正确的结构示例 (config.development.yaml)
+server:
+  listen_addr: ":8080"
+  port: "8080" # 如果需要的话
+  requestTimeout: 10s # 确保存在并使用时间单位
+logger: # 对应 cfg.Logger (类型是 core.ZapConfig)
+  level: "info" # 或者 "debug"
+  encoding: "json" # 或者 "console"
+tracing: # 对应 cfg.Tracing
+  enabled: true
+  exporter_type: "otlp_grpc"
+  exporter_endpoint: "otel-collector:4317" # 本地测试可能用 localhost:4317
+  sampler_type: "parent_based_traceid_ratio"
+  sampler_param: 0.1
+jwtConfig: # 对应 cfg.JWTConfig
+  secret_key: "your-access-secret"
+  refresh_secret: "your-refresh-secret"
+  issuer: "gateway"
+  # expiresIn: 3600 # 如果需要
+rateLimitConfig: # 对应 cfg.RateLimitConfig
+  capacity: 100
+  refill_interval: 1s
+  cleanup_interval: 5m
+  idle_timeout: 10m
+services: # 对应 cfg.Services
+  - name: "user-service"
+    prefix: "/api/user"
+    # 根据你的 K8s/非 K8s 逻辑填写 host/port 或 serviceName/namespace
+    host: "localhost" # 本地开发示例
+    port: 8081
+    publicPaths: ["/login", "/register"] # 示例公开路径
+    # routes: [...] # 如果需要更细粒度的权限控制
+  - name: "post-service"
+    prefix: "/api/post"
+    host: "localhost" # 本地开发示例
+    port: 8082
+    # allowedRoles: ... # 如果这个字段在 ServiceConfig 里定义了
+cors: # 对应 cfg.Cors
+  allow_origins:
+    - "http://localhost:8000"
+    - "http://127.0.0.1:8000"
+  allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allow_headers: ["Origin", "Content-Type", "Authorization", "X-Requested-With"]
+  allow_credentials: true
+  max_age: 43200

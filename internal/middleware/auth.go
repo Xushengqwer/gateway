@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Xushengqwer/gateway/internal/core"
-	"github.com/Xushengqwer/gateway/pkg/constant"
-	"github.com/Xushengqwer/gateway/pkg/enums"
-	"github.com/Xushengqwer/gateway/pkg/response"
+	"github.com/Xushengqwer/go-common/constants"
+	"github.com/Xushengqwer/go-common/models/enums"
+
+	"github.com/Xushengqwer/go-common/response"
 
 	"github.com/golang-jwt/jwt/v5"
 	"net/http"
@@ -94,8 +95,8 @@ func AuthMiddleware(jwtUtil core.JWTUtilityInterface) gin.HandlerFunc {
 		// 将用户信息添加到 HTTP 头
 		// 将用户状态和角色存入上下文
 
-		c.Set(constant.StatusContextKey, claims.Status) // 假设 claims 中有 Status
-		c.Set(constant.RoleContextKey, claims.Role)     // 假设 claims 中有 Role
+		c.Set(constants.StatusContextKey, claims.Status) // 假设 claims 中有 Status
+		c.Set(constants.RoleContextKey, claims.Role)     // 假设 claims 中有 Role
 		c.Request.Header.Set("X-User-ID", claims.UserID)
 		c.Request.Header.Set("X-User-Role", claims.Role.String())
 		c.Request.Header.Set("X-User-Status", claims.Status.String())

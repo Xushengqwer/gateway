@@ -54,20 +54,34 @@ func SetupRouter(r *gin.Engine, cfg *config.GatewayConfig, logger *sharedCore.Za
 
 	// --- 3. 设置代理路由和特定中间件 ---
 	setupProxyRoutesInternal(r, cfg, logger, jwtUtil, otelTransport) // 调用内部函数处理代理
-
 }
 
-// setupProxyRoutesInternal 处理实际的反向代理逻辑和路由组特定中间件
-// (这是你原来 SetupProxyRoutes 函数的核心逻辑，稍作修改)
+// setupProxyRoutesInternal 处理实际的反向代理逻辑
 func setupProxyRoutesInternal(r *gin.Engine, cfg *config.GatewayConfig, logger *sharedCore.ZapLogger, jwtUtil gatewayCore.JWTUtilityInterface, otelTransport http.RoundTripper) {
+	// 创建一个 map 用于快速查找服务的公开路径
+	publicPathsMap := make(map[string]map[string]bool) // map[servicePrefix][subPath] = true
+	for _, svc := range cfg.Services {
+		if _, exists := publicPathsMap[svc.Prefix]; !exists {
+			publicPathsMap[svc.Prefix] = make(map[string]bool)
+		}
+		for _, p := range svc.PublicPaths {
+			// 确保 public path 以 / 开头
+			if !strings.HasPrefix(p, "/") {
+				p = "/" + p
+			}
+			publicPathsMap[svc.Prefix][p] = true
+			logger.Info("Marking public path", zap.String("prefix", svc.Prefix), zap.String("subPath", p))
+		}
+	}
+
 	// 遍历配置中的服务
 	for _, svc := range cfg.Services {
-		// ... (构建 targetHost, port, scheme 的逻辑保持不变) ...
+		// --- 构建 targetURL (保持不变) ---
 		var targetHost string
 		var port int
 		scheme := svc.Scheme
 		if scheme == "" {
-			scheme = "http" // 默认协议为 http
+			scheme = "http"
 		}
 		if svc.ServiceName != "" { /* K8s logic */
 			namespace := svc.Namespace
@@ -81,83 +95,114 @@ func setupProxyRoutesInternal(r *gin.Engine, cfg *config.GatewayConfig, logger *
 			}
 		} else { /* Non-K8s logic */
 			if svc.Host == "" || svc.Port == 0 { /* Error handling */
-				logger.Fatal("Invalid service config for non-K8s mode", zap.String("service", svc.Name)) // ... more fields ...
+				logger.Fatal("Invalid service config for non-K8s mode", zap.String("service", svc.Name))
 			}
 			targetHost = svc.Host
 			port = svc.Port
 		}
-
 		targetURL, err := url.Parse(fmt.Sprintf("%s://%s:%d", scheme, targetHost, port))
 		if err != nil {
 			logger.Fatal("Invalid service URL", zap.String("service", svc.Name), zap.Error(err))
 		}
 
-		// 创建反向代理实例
+		// --- 创建反向代理实例 (保持不变) ---
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-		// --- 关键: 设置 OTel Transport ---
-		// 这样通过代理发出的请求就会被追踪并携带上下文
 		proxy.Transport = otelTransport
-
-		// 修改 Director (移除手动设置 X-Request-Id)
 		proxy.Director = func(req *http.Request) {
 			req.URL.Scheme = targetURL.Scheme
 			req.URL.Host = targetURL.Host
-			originalPath := req.URL.Path // 保存原始路径供可能的日志记录或权限判断
+			originalPath := req.URL.Path
 			newPath := strings.TrimPrefix(originalPath, svc.Prefix)
-			// 如果 TrimPrefix 后为空，可能需要设置为 "/"
 			if newPath == "" && originalPath == svc.Prefix {
 				newPath = "/"
-			} else if !strings.HasPrefix(newPath, "/") && newPath != "" {
-				newPath = "/" + newPath // 确保以 / 开头
+			}
+			if !strings.HasPrefix(newPath, "/") && newPath != "" {
+				newPath = "/" + newPath
 			}
 			req.URL.Path = newPath
-
-			// 保留原始 Host 或设置 X-Forwarded-Host (可选，根据下游需要)
 			req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
-			req.Host = targetURL.Host // 设置请求的 Host 头为目标服务的 Host
+			req.Host = targetURL.Host
 		}
-
-		// ErrorHandler (保持不变)
 		proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
-			logger.Error("Proxy error", zap.Error(err), zap.String("path", req.URL.Path))
+			// ... (ErrorHandler 逻辑保持不变, 考虑使用 response 包) ...
+			logger.Error("Proxy error", zap.Error(err), zap.String("target", targetURL.String()), zap.String("path", req.URL.Path))
+			rw.Header().Set("Content-Type", "application/json")
 			rw.WriteHeader(http.StatusBadGateway)
-			// 考虑使用共享的 RespondError
-			// sharedResponse.RespondError(rw, http.StatusBadGateway, sharedResponse.ErrCodeServiceNotFound, "下游服务不可用")
-			fmt.Fprintf(rw, `{"code": 50201, "message": "Bad Gateway", "detail": "下游服务不可用"}`) // 使用统一格式
+			fmt.Fprintf(rw, `{"code": 50201, "message": "Bad Gateway", "detail": "下游服务不可用"}`)
 		}
 
-		// 创建路由组
-		serviceGroup := r.Group(svc.Prefix)
-		{ // 使用花括号明确作用域
+		// --- 注册统一的处理器 ---
+		// 为整个服务前缀注册一个 ANY 方法的处理器
+		// 使用 /*action 匹配该前缀下的所有子路径
+		proxyPath := svc.Prefix + "/*action"
+		logger.Info("Registering proxy handler", zap.String("path", proxyPath), zap.String("target", targetURL.String()))
 
-			// --- 在路由组级别应用网关特定的中间件 ---
-			// (这些中间件在全局中间件之后，代理处理之前运行)
+		// 将服务配置和依赖注入到处理函数中
+		handler := createProxyHandler(svc, cfg, logger, jwtUtil, proxy, publicPathsMap[svc.Prefix])
+		r.Any(proxyPath, handler)
 
-			// 10. 应用认证和权限中间件到需要保护的路径
-			// 注意：这里我们将认证和权限应用到整个 group
-			// 如果有公开路径，它们的注册方式需要调整
-			serviceGroup.Use(mymiddleware.AuthMiddleware(jwtUtil))   // JWT 认证
-			serviceGroup.Use(mymiddleware.PermissionMiddleware(cfg)) // 权限校验
+		// 如果 Prefix 本身也需要代理 (例如 /api/user 代理到下游 /)
+		if svc.Prefix != "" {
+			r.Any(svc.Prefix, handler) // 也注册根前缀
+		}
+	}
+}
 
-			// 11. 代理所有 /prefix/* 的请求
-			// 使用 /*action 匹配组内的所有路径
-			serviceGroup.Any("/*action", gin.WrapH(proxy))
+// createProxyHandler 创建一个 Gin 处理函数，该函数内部处理公开/私有逻辑
+func createProxyHandler(svc config.ServiceConfig, cfg *config.GatewayConfig, logger *sharedCore.ZapLogger, jwtUtil gatewayCore.JWTUtilityInterface, proxy *httputil.ReverseProxy, servicePublicPaths map[string]bool) gin.HandlerFunc {
+	// 提前创建中间件实例 (如果它们有状态的话，否则可以直接调用函数)
+	// 注意：这里假设 AuthMiddleware 和 PermissionMiddleware 返回 gin.HandlerFunc
+	// 更好的做法是将它们的 *核心逻辑* 提取为可单独调用的函数
+	authHandler := mymiddleware.AuthMiddleware(jwtUtil)
+	permHandler := mymiddleware.PermissionMiddleware(cfg)
+
+	return func(c *gin.Context) {
+		// 获取相对于服务前缀的子路径
+		subPath := strings.TrimPrefix(c.FullPath(), svc.Prefix) // 使用 FullPath 获取注册的路径模板
+		if !strings.HasPrefix(subPath, "/") && subPath != "" {
+			subPath = "/" + subPath
+		}
+		// 对于完全匹配 Prefix 的情况，subPath 可能是空的，也视为根 "/"
+		if subPath == "" {
+			subPath = "/"
 		}
 
-		// --- 处理公开路径 (PublicPaths) ---
-		// 公开路径不需要 Auth 和 Permission，直接在 r 上注册
-		for _, publicPath := range svc.PublicPaths {
-			// 确保 publicPath 以 / 开头
-			if !strings.HasPrefix(publicPath, "/") {
-				publicPath = "/" + publicPath
+		// 检查是否是公开路径
+		isPublic := servicePublicPaths[subPath]
+		// 也可以添加对 c.Param("action") 的检查，如果需要更精确匹配
+
+		traceIDVal, _ := c.Get("traceID") // 假设 traceID 在 context 中
+		logger.Debug("Checking path authorization",
+			zap.String("prefix", svc.Prefix),
+			zap.String("subPath", subPath),
+			zap.Bool("isPublic", isPublic),
+			zap.Any("traceID", traceIDVal), // 添加 traceID 方便调试
+		)
+
+		if isPublic {
+			// 如果是公开路径，直接调用代理
+			logger.Debug("Public path, proxying directly", zap.String("path", c.Request.URL.Path))
+			proxy.ServeHTTP(c.Writer, c.Request)
+		} else {
+			// 如果是私有路径，按顺序执行中间件，然后代理
+			logger.Debug("Private path, applying middleware", zap.String("path", c.Request.URL.Path))
+			// 1. 执行认证中间件
+			authHandler(c)
+			if c.IsAborted() { // 检查认证中间件是否中止了请求
+				logger.Warn("Request aborted by AuthMiddleware", zap.String("path", c.Request.URL.Path))
+				return
 			}
-			// 完整路径应该是 Prefix + PublicPath
-			// 例如 Prefix=/user, PublicPath=/register -> /user/register
-			fullPublicPath := svc.Prefix + publicPath
-			logger.Info("Registering public proxy route", zap.String("path", fullPublicPath))
-			// 对公开路径应用代理，但不应用 serviceGroup 的中间件
-			r.Any(fullPublicPath, gin.WrapH(proxy))
+
+			// 2. 执行权限中间件
+			permHandler(c)
+			if c.IsAborted() { // 检查权限中间件是否中止了请求
+				logger.Warn("Request aborted by PermissionMiddleware", zap.String("path", c.Request.URL.Path))
+				return
+			}
+
+			// 3. 如果所有中间件通过，执行代理
+			logger.Debug("Middleware passed, proxying request", zap.String("path", c.Request.URL.Path))
+			proxy.ServeHTTP(c.Writer, c.Request)
 		}
 	}
 }

@@ -2,11 +2,11 @@ package middleware
 
 import (
 	"github.com/Xushengqwer/gateway/internal/config"
-	"github.com/Xushengqwer/gateway/pkg/constant"
-	"github.com/Xushengqwer/gateway/pkg/enums"
-	"github.com/Xushengqwer/gateway/pkg/response" // 响应工具包
-	"net/http"                                    // HTTP 状态码和请求处理
-	"strings"                                     // 字符串操作，用于路径匹配
+	"github.com/Xushengqwer/go-common/constants"
+	"github.com/Xushengqwer/go-common/models/enums"
+	"github.com/Xushengqwer/go-common/response"
+	"net/http" // HTTP 状态码和请求处理
+	"strings"  // 字符串操作，用于路径匹配
 
 	"github.com/gin-gonic/gin" // Gin 框架
 )
@@ -19,7 +19,7 @@ func PermissionMiddleware(cfg *config.GatewayConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 获取用户状态，从上下文读取 StatusContextKey 的值
 		// 如果不存在，返回禁止访问错误
-		status, exists := c.Get(constant.StatusContextKey)
+		status, exists := c.Get(constants.StatusContextKey)
 		if !exists {
 			response.RespondError(c, http.StatusForbidden, response.ErrCodeClientForbidden, "状态获取失败")
 			c.Abort() // 终止请求
@@ -36,7 +36,7 @@ func PermissionMiddleware(cfg *config.GatewayConfig) gin.HandlerFunc {
 
 		// 获取用户角色，从上下文读取 RoleContextKey 的值
 		// 如果不存在，返回权限不足错误
-		roleList, exists := c.Get(constant.RoleContextKey)
+		roleList, exists := c.Get(constants.RoleContextKey)
 		if !exists {
 			response.RespondError(c, http.StatusForbidden, response.ErrCodeClientForbidden, "权限不足")
 			c.Abort() // 终止请求

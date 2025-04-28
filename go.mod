@@ -3,11 +3,10 @@ module github.com/Xushengqwer/gateway
 go 1.23.7
 
 require (
-	github.com/Xushengqwer/go-common v0.0.0-20250427182042-3a410b552a2f
+	github.com/Xushengqwer/go-common v0.0.0-20250427184533-a69a8fc56b85
 	github.com/gin-contrib/cors v1.7.5
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
-	github.com/google/uuid v1.6.0
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.60.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.uber.org/zap v1.27.0
@@ -29,6 +28,7 @@ require (
 	github.com/go-playground/validator/v10 v10.26.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
