@@ -94,7 +94,6 @@ func AuthMiddleware(jwtUtil core.JWTUtilityInterface) gin.HandlerFunc {
 		// - 继续处理请求
 		// 将用户信息添加到 HTTP 头
 		// 将用户状态和角色存入上下文
-
 		c.Set(constants.StatusContextKey, claims.Status) // 假设 claims 中有 Status
 		c.Set(constants.RoleContextKey, claims.Role)     // 假设 claims 中有 Role
 		c.Request.Header.Set("X-User-ID", claims.UserID)

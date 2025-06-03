@@ -3,7 +3,7 @@ package main
 
 import (
 	"context"
-	"errors" // 导入 errors
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/Xushengqwer/gateway/internal/constant"
@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/Xushengqwer/gateway/internal/config"
-	gatewayCore "github.com/Xushengqwer/gateway/internal/core" // 网关内部 core (JWT)
-	"github.com/Xushengqwer/gateway/internal/router"           // 网关内部 router
-	sharedCore "github.com/Xushengqwer/go-common/core"         // 共享库 core (Logger, Config)
-	sharedTracing "github.com/Xushengqwer/go-common/tracing"   // 共享库 tracing
+	gatewayCore "github.com/Xushengqwer/gateway/internal/core"    // 网关内部 core (JWT)
+	"github.com/Xushengqwer/gateway/internal/router"              // 网关内部 router
+	sharedCore "github.com/Xushengqwer/go-common/core"            // 共享库 core (Logger, Config)
+	sharedTracing "github.com/Xushengqwer/go-common/core/tracing" // 共享库 tracing
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -51,7 +51,7 @@ func main() {
 	}()
 
 	// --- 3. 初始化 TracerProvider (如果启用) ---
-	var otelTransport http.RoundTripper = http.DefaultTransport // 默认 Transport
+	var otelTransport http.RoundTripper = http.DefaultTransport
 	if cfg.TracerConfig.Enabled {
 		shutdownTracer, err := sharedTracing.InitTracerProvider(constant.ServiceName, constant.ServiceVersion, cfg.TracerConfig)
 		if err != nil {

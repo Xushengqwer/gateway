@@ -6,8 +6,9 @@ import "github.com/Xushengqwer/go-common/models/enums"
 
 // RouteConfig 定义基于路径的路由规则
 type RouteConfig struct {
-	Path         string           `yaml:"path"`         // 资源路径（根据资源路径来选择权限）
-	AllowedRoles []enums.UserRole `yaml:"allowedRoles"` // 该路径允许的角色
+	Path         string           `yaml:"path"`              // 资源路径（根据资源路径来选择权限）
+	Methods      []string         `yaml:"methods,omitempty"` // 该路径允许的 HTTP 方法 (GET, POST, PUT, DELETE等), 为空则匹配所有方法
+	AllowedRoles []enums.UserRole `yaml:"allowedRoles"`      // 该路径允许的角色
 }
 
 // ServiceConfig 定义单个服务的配置

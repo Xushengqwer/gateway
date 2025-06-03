@@ -2,207 +2,285 @@ package router
 
 import (
 	"fmt"
-	"github.com/Xushengqwer/gateway/internal/constant"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
 
 	"github.com/Xushengqwer/gateway/internal/config"
-	gatewayCore "github.com/Xushengqwer/gateway/internal/core"        // 网关内部 core (JWT)
-	mymiddleware "github.com/Xushengqwer/gateway/internal/middleware" // 网关内部中间件 (Auth, Perm)
-	sharedCore "github.com/Xushengqwer/go-common/core"                // 共享库 core (Logger)
-	sharedMiddleware "github.com/Xushengqwer/go-common/middleware"    // 共享库中间件
+	"github.com/Xushengqwer/gateway/internal/constant"
+	gatewayCore "github.com/Xushengqwer/gateway/internal/core"
+	mymiddleware "github.com/Xushengqwer/gateway/internal/middleware"
+	sharedCore "github.com/Xushengqwer/go-common/core"
+	sharedMiddleware "github.com/Xushengqwer/go-common/middleware"
+	"github.com/Xushengqwer/go-common/response" // <-- 确保已导入
 
-	"github.com/gin-gonic/gin"                                                     // Gin 框架
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin" // OTel Gin
+	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"go.uber.org/zap"
 )
 
-// SetupRouter 设置网关的所有路由和全局中间件
+// SetupRouter 设置网关的所有路由和全局中间件。
+// (函数保持不变)
 func SetupRouter(r *gin.Engine, cfg *config.GatewayConfig, logger *sharedCore.ZapLogger, jwtUtil gatewayCore.JWTUtilityInterface, otelTransport http.RoundTripper) {
+	logger.Info("开始设置网关路由及全局中间件...")
 
-	// --- 1. 应用全局中间件 (按顺序) ---
-
-	// OTel Gin 中间件 (如果启用追踪)
+	// --- 1. 应用全局中间件 (按执行顺序排列) ---
 	if cfg.TracerConfig.Enabled {
 		r.Use(otelgin.Middleware(constant.ServiceName))
+		logger.Info("OpenTelemetry 中间件已启用。")
 	}
-
-	// Panic 恢复
 	r.Use(sharedMiddleware.ErrorHandlingMiddleware(logger))
-
-	// Trace Info 提取 (可选)
-	r.Use(sharedMiddleware.RequestIDMiddleware()) // 使用共享改造后的
-
-	// 请求日志 (包含 Trace/Span ID)
-	r.Use(sharedMiddleware.RequestLoggerMiddleware(logger.Logger())) // 使用共享改造后的
-
-	// 请求超时 (使用配置中的超时)
+	r.Use(sharedMiddleware.RequestIDMiddleware())
+	if baseLogger := logger.Logger(); baseLogger != nil {
+		r.Use(sharedMiddleware.RequestLoggerMiddleware(baseLogger))
+	} else {
+		logger.Warn("无法获取底层的 *zap.Logger，跳过 RequestLoggerMiddleware 注册")
+	}
 	r.Use(sharedMiddleware.RequestTimeoutMiddleware(logger, cfg.Server.RequestTimeout))
-
-	// 全局限流中间件
-	r.Use(mymiddleware.RateLimitMiddleware(logger, cfg.RateLimitConfig))
-
-	// 7. CORS 跨域处理中间件
+	if cfg.RateLimitConfig != nil {
+		r.Use(mymiddleware.RateLimitMiddleware(logger, cfg.RateLimitConfig))
+		logger.Info("全局限流中间件已启用。")
+	} else {
+		logger.Info("全局限流配置未提供，跳过限流中间件。")
+	}
 	r.Use(mymiddleware.CorsMiddleware(cfg.Cors))
+	logger.Info("CORS 中间件已启用。")
 
 	// --- 2. 设置健康检查路由 ---
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
 	})
+	logger.Info("健康检查路由 /health 已注册。")
 
 	// --- 3. 设置代理路由和特定中间件 ---
-	setupProxyRoutesInternal(r, cfg, logger, jwtUtil, otelTransport) // 调用内部函数处理代理
+	setupProxyRoutesInternal(r, cfg, logger, jwtUtil, otelTransport)
+	logger.Info("所有代理路由已设置完成。")
 }
 
-// setupProxyRoutesInternal 处理实际的反向代理逻辑
-func setupProxyRoutesInternal(r *gin.Engine, cfg *config.GatewayConfig, logger *sharedCore.ZapLogger, jwtUtil gatewayCore.JWTUtilityInterface, otelTransport http.RoundTripper) {
-	// 创建一个 map 用于快速查找服务的公开路径
-	publicPathsMap := make(map[string]map[string]bool) // map[servicePrefix][subPath] = true
-	for _, svc := range cfg.Services {
-		if _, exists := publicPathsMap[svc.Prefix]; !exists {
-			publicPathsMap[svc.Prefix] = make(map[string]bool)
-		}
-		for _, p := range svc.PublicPaths {
-			// 确保 public path 以 / 开头
-			if !strings.HasPrefix(p, "/") {
-				p = "/" + p
-			}
-			publicPathsMap[svc.Prefix][p] = true
-			logger.Info("Marking public path", zap.String("prefix", svc.Prefix), zap.String("subPath", p))
-		}
+// matchPublicPath 检查请求子路径是否匹配给定的公共路径模式 (支持参数)
+// (函数保持不变)
+func matchPublicPath(publicPathPattern string, requestSubPath string) bool {
+	patternSegments := strings.Split(strings.Trim(publicPathPattern, "/"), "/")
+	requestSegments := strings.Split(strings.Trim(requestSubPath, "/"), "/")
+
+	isPatternRoot := publicPathPattern == "/" || (len(patternSegments) == 1 && patternSegments[0] == "")
+	isRequestRoot := requestSubPath == "/" || (len(requestSegments) == 1 && requestSegments[0] == "")
+
+	if isPatternRoot && isRequestRoot {
+		return true
 	}
 
-	// 遍历配置中的服务
+	if len(patternSegments) != len(requestSegments) {
+		return false
+	}
+
+	for i, pSegment := range patternSegments {
+		rSegment := requestSegments[i]
+		if strings.HasPrefix(pSegment, ":") || strings.HasPrefix(pSegment, "{") {
+			if rSegment == "" {
+				return false
+			}
+			continue
+		}
+		if pSegment != rSegment {
+			return false
+		}
+	}
+	return true
+}
+
+// setupProxyRoutesInternal 根据配置文件中的服务列表，设置反向代理路由。
+// (函数保持不变, 除了 handler 创建部分)
+func setupProxyRoutesInternal(r *gin.Engine, cfg *config.GatewayConfig, logger *sharedCore.ZapLogger, jwtUtil gatewayCore.JWTUtilityInterface, otelTransport http.RoundTripper) {
+
 	for _, svc := range cfg.Services {
-		// --- 构建 targetURL (保持不变) ---
+		serviceConfig := svc // 避免闭包问题
+
 		var targetHost string
 		var port int
-		scheme := svc.Scheme
+		scheme := serviceConfig.Scheme
 		if scheme == "" {
 			scheme = "http"
 		}
-		if svc.ServiceName != "" { /* K8s logic */
-			namespace := svc.Namespace
+
+		if serviceConfig.ServiceName != "" {
+			namespace := serviceConfig.Namespace
 			if namespace == "" {
 				namespace = "default"
 			}
-			targetHost = fmt.Sprintf("%s.%s.svc.cluster.local", svc.ServiceName, namespace)
-			port = svc.Port
+			targetHost = fmt.Sprintf("%s.%s.svc.cluster.local", serviceConfig.ServiceName, namespace)
+			port = serviceConfig.Port
 			if port == 0 {
 				port = 80
 			}
-		} else { /* Non-K8s logic */
-			if svc.Host == "" || svc.Port == 0 { /* Error handling */
-				logger.Fatal("Invalid service config for non-K8s mode", zap.String("service", svc.Name))
+		} else {
+			if serviceConfig.Host == "" || serviceConfig.Port == 0 {
+				logger.Fatal("非K8s模式下服务配置无效：Host 或 Port 未指定",
+					zap.String("serviceName", serviceConfig.Name))
 			}
-			targetHost = svc.Host
-			port = svc.Port
-		}
-		targetURL, err := url.Parse(fmt.Sprintf("%s://%s:%d", scheme, targetHost, port))
-		if err != nil {
-			logger.Fatal("Invalid service URL", zap.String("service", svc.Name), zap.Error(err))
+			targetHost = serviceConfig.Host
+			port = serviceConfig.Port
 		}
 
-		// --- 创建反向代理实例 (保持不变) ---
+		targetURL, err := url.Parse(fmt.Sprintf("%s://%s:%d", scheme, targetHost, port))
+		if err != nil {
+			logger.Fatal("解析目标服务URL失败",
+				zap.String("serviceName", serviceConfig.Name),
+				zap.String("targetHost", targetHost),
+				zap.Int("port", port),
+				zap.Error(err))
+		}
+		logger.Info("构建目标服务URL成功",
+			zap.String("serviceName", serviceConfig.Name),
+			zap.String("targetURL", targetURL.String()))
+
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-		proxy.Transport = otelTransport
+		if otelTransport != nil {
+			proxy.Transport = otelTransport
+		}
+
 		proxy.Director = func(req *http.Request) {
 			req.URL.Scheme = targetURL.Scheme
 			req.URL.Host = targetURL.Host
-			originalPath := req.URL.Path
-			newPath := strings.TrimPrefix(originalPath, svc.Prefix)
-			if newPath == "" && originalPath == svc.Prefix {
-				newPath = "/"
-			}
-			if !strings.HasPrefix(newPath, "/") && newPath != "" {
-				newPath = "/" + newPath
-			}
-			req.URL.Path = newPath
 			req.Header.Set("X-Forwarded-Host", req.Header.Get("Host"))
 			req.Host = targetURL.Host
+			logger.Debug("正在代理请求，包含以下头部信息",
+				zap.String("serviceName", serviceConfig.Name),
+				zap.Any("headers", req.Header),
+				zap.String("path", req.URL.Path))
 		}
+
 		proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, err error) {
-			// ... (ErrorHandler 逻辑保持不变, 考虑使用 response 包) ...
-			logger.Error("Proxy error", zap.Error(err), zap.String("target", targetURL.String()), zap.String("path", req.URL.Path))
+			logger.Error("反向代理错误",
+				zap.Error(err),
+				zap.String("targetService", serviceConfig.Name),
+				zap.String("targetURL", targetURL.String()),
+				zap.String("requestPath", req.URL.Path),
+			)
 			rw.Header().Set("Content-Type", "application/json")
 			rw.WriteHeader(http.StatusBadGateway)
-			fmt.Fprintf(rw, `{"code": 50201, "message": "Bad Gateway", "detail": "下游服务不可用"}`)
+			fmt.Fprintf(rw, `{"code": 50201, "message": "Bad Gateway", "detail": "下游服务不可用或响应错误"}`)
 		}
 
-		// --- 注册统一的处理器 ---
-		// 为整个服务前缀注册一个 ANY 方法的处理器
-		// 使用 /*action 匹配该前缀下的所有子路径
-		proxyPath := svc.Prefix + "/*action"
-		logger.Info("Registering proxy handler", zap.String("path", proxyPath), zap.String("target", targetURL.String()))
+		proxyPath := serviceConfig.Prefix
+		if !strings.HasSuffix(proxyPath, "/") {
+			proxyPath += "/"
+		}
+		proxyPath += "*action"
 
-		// 将服务配置和依赖注入到处理函数中
-		handler := createProxyHandler(svc, cfg, logger, jwtUtil, proxy, publicPathsMap[svc.Prefix])
+		logger.Info("为服务注册代理处理器",
+			zap.String("serviceName", serviceConfig.Name),
+			zap.String("ginRoutePath", proxyPath),
+			zap.String("targetURL", targetURL.String()))
+
+		// --- 修改: 不再传递 PublicPaths, 而是整个 svcCfg ---
+		handler := createProxyHandler(serviceConfig, cfg, logger, jwtUtil, proxy)
+
 		r.Any(proxyPath, handler)
-
-		// 如果 Prefix 本身也需要代理 (例如 /api/user 代理到下游 /)
-		if svc.Prefix != "" {
-			r.Any(svc.Prefix, handler) // 也注册根前缀
+		if serviceConfig.Prefix != "" {
+			r.Any(serviceConfig.Prefix, handler)
+			logger.Info("同时为服务根前缀注册处理器",
+				zap.String("serviceName", serviceConfig.Name),
+				zap.String("exactPrefixPath", serviceConfig.Prefix))
 		}
 	}
 }
 
-// createProxyHandler 创建一个 Gin 处理函数，该函数内部处理公开/私有逻辑
-func createProxyHandler(svc config.ServiceConfig, cfg *config.GatewayConfig, logger *sharedCore.ZapLogger, jwtUtil gatewayCore.JWTUtilityInterface, proxy *httputil.ReverseProxy, servicePublicPaths map[string]bool) gin.HandlerFunc {
-	// 提前创建中间件实例 (如果它们有状态的话，否则可以直接调用函数)
-	// 注意：这里假设 AuthMiddleware 和 PermissionMiddleware 返回 gin.HandlerFunc
-	// 更好的做法是将它们的 *核心逻辑* 提取为可单独调用的函数
+// createProxyHandler 创建一个 Gin 处理函数 (重构版 - 核心修改)
+func createProxyHandler(
+	svcCfg config.ServiceConfig, // <-- 使用整个服务配置
+	gatewayCfg *config.GatewayConfig,
+	logger *sharedCore.ZapLogger,
+	jwtUtil gatewayCore.JWTUtilityInterface,
+	proxy *httputil.ReverseProxy,
+) gin.HandlerFunc {
 	authHandler := mymiddleware.AuthMiddleware(jwtUtil)
-	permHandler := mymiddleware.PermissionMiddleware(cfg)
+	permHandler := mymiddleware.PermissionMiddleware(gatewayCfg)
 
 	return func(c *gin.Context) {
-		// 获取相对于服务前缀的子路径
-		subPath := strings.TrimPrefix(c.FullPath(), svc.Prefix) // 使用 FullPath 获取注册的路径模板
-		if !strings.HasPrefix(subPath, "/") && subPath != "" {
-			subPath = "/" + subPath
-		}
-		// 对于完全匹配 Prefix 的情况，subPath 可能是空的，也视为根 "/"
-		if subPath == "" {
-			subPath = "/"
+		requestPath := c.Request.URL.Path
+		method := c.Request.Method
+		subPathForLookup := strings.TrimPrefix(requestPath, svcCfg.Prefix)
+		if !strings.HasPrefix(subPathForLookup, "/") && subPathForLookup != "" {
+			subPathForLookup = "/" + subPathForLookup
+		} else if subPathForLookup == "" {
+			subPathForLookup = "/"
 		}
 
-		// 检查是否是公开路径
-		isPublic := servicePublicPaths[subPath]
-		// 也可以添加对 c.Param("action") 的检查，如果需要更精确匹配
-
-		traceIDVal, _ := c.Get("traceID") // 假设 traceID 在 context 中
-		logger.Debug("Checking path authorization",
-			zap.String("prefix", svc.Prefix),
-			zap.String("subPath", subPath),
-			zap.Bool("isPublic", isPublic),
-			zap.Any("traceID", traceIDVal), // 添加 traceID 方便调试
+		traceIDVal, _ := c.Get("traceID")
+		logger.Debug("检查路径授权状态 (新)",
+			zap.String("serviceName", svcCfg.Name),
+			zap.String("requestPath", requestPath),
+			zap.String("servicePrefix", svcCfg.Prefix),
+			zap.String("subPathForLookup", subPathForLookup),
+			zap.Any("traceID", traceIDVal),
 		)
 
-		if isPublic {
-			// 如果是公开路径，直接调用代理
-			logger.Debug("Public path, proxying directly", zap.String("path", c.Request.URL.Path))
-			proxy.ServeHTTP(c.Writer, c.Request)
-		} else {
-			// 如果是私有路径，按顺序执行中间件，然后代理
-			logger.Debug("Private path, applying middleware", zap.String("path", c.Request.URL.Path))
-			// 1. 执行认证中间件
+		// 1. 检查是否匹配私有路由
+		_, foundPrivate := mymiddleware.FindBestMatchingRoute(svcCfg.Routes, subPathForLookup, method)
+
+		if foundPrivate {
+			// 是私有路由 -> 走认证流程
+			logger.Debug("私有路径，应用认证和权限中间件",
+				zap.String("serviceName", svcCfg.Name),
+				zap.String("path", requestPath))
+
 			authHandler(c)
-			if c.IsAborted() { // 检查认证中间件是否中止了请求
-				logger.Warn("Request aborted by AuthMiddleware", zap.String("path", c.Request.URL.Path))
+			if c.IsAborted() {
+				logger.Warn("请求被认证中间件中止",
+					zap.String("serviceName", svcCfg.Name),
+					zap.String("path", requestPath),
+					zap.Int("statusCode", c.Writer.Status()))
 				return
 			}
+			logger.Debug("认证中间件通过",
+				zap.String("serviceName", svcCfg.Name),
+				zap.String("path", requestPath))
 
-			// 2. 执行权限中间件
 			permHandler(c)
-			if c.IsAborted() { // 检查权限中间件是否中止了请求
-				logger.Warn("Request aborted by PermissionMiddleware", zap.String("path", c.Request.URL.Path))
+			if c.IsAborted() {
+				logger.Warn("请求被权限中间件中止",
+					zap.String("serviceName", svcCfg.Name),
+					zap.String("path", requestPath),
+					zap.Int("statusCode", c.Writer.Status()))
 				return
 			}
+			logger.Debug("权限中间件通过",
+				zap.String("serviceName", svcCfg.Name),
+				zap.String("path", requestPath))
 
-			// 3. 如果所有中间件通过，执行代理
-			logger.Debug("Middleware passed, proxying request", zap.String("path", c.Request.URL.Path))
+			logger.Debug("所有中间件通过，执行代理",
+				zap.String("serviceName", svcCfg.Name),
+				zap.String("path", requestPath))
 			proxy.ServeHTTP(c.Writer, c.Request)
+
+		} else {
+			// 2. 不是私有路由，检查是否匹配公开路由
+			isPublic := false
+			for _, publicPattern := range svcCfg.PublicPaths {
+				if matchPublicPath(publicPattern, subPathForLookup) {
+					isPublic = true
+					break
+				}
+			}
+
+			if isPublic {
+				// 是公开路由 -> 直接代理
+				logger.Debug("公开路径，直接代理",
+					zap.String("serviceName", svcCfg.Name),
+					zap.String("path", requestPath))
+				proxy.ServeHTTP(c.Writer, c.Request)
+			} else {
+				// 3. 既不匹配私有也不匹配公开 -> 拒绝访问 (返回 404 更合适)
+				logger.Warn("路径未匹配任何私有或公开路由，拒绝访问",
+					zap.String("serviceName", svcCfg.Name),
+					zap.String("path", requestPath),
+					zap.String("subPath", subPathForLookup),
+				)
+				response.RespondError(c, http.StatusNotFound, response.ErrCodeClientResourceNotFound, "路径未定义或无权访问")
+				c.Abort()
+			}
 		}
 	}
 }

@@ -16,10 +16,10 @@ func CorsMiddleware(cfg config.CorsConfig) gin.HandlerFunc { // 接收 CorsConfi
 		cfg.AllowOrigins = []string{} // 或者不允许任何跨域作为默认？
 	}
 	if len(cfg.AllowMethods) == 0 {
-		cfg.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+		cfg.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} // [建议] 添加 "PATCH"
 	}
 	if len(cfg.AllowHeaders) == 0 {
-		cfg.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Requested-With"}
+		cfg.AllowHeaders = []string{"Origin", "Content-Type", "Authorization", "X-Requested-With", "X-Platform"} // [建议] 确保 "X-Platform" 和其他自定义头被包含
 	}
 	maxAgeDuration := time.Duration(cfg.MaxAge) * time.Second
 	if cfg.MaxAge == 0 {
@@ -27,10 +27,11 @@ func CorsMiddleware(cfg config.CorsConfig) gin.HandlerFunc { // 接收 CorsConfi
 	}
 
 	return cors.New(cors.Config{
-		AllowOrigins:     cfg.AllowOrigins,     // 使用配置的值
-		AllowMethods:     cfg.AllowMethods,     // 使用配置的值
-		AllowHeaders:     cfg.AllowHeaders,     // 使用配置的值
-		AllowCredentials: cfg.AllowCredentials, // 使用配置的值
-		MaxAge:           maxAgeDuration,       // 使用计算后的 Duration
+		AllowOrigins:     cfg.AllowOrigins,           // 使用配置的值
+		AllowMethods:     cfg.AllowMethods,           // 使用配置的值
+		AllowHeaders:     cfg.AllowHeaders,           // 使用配置的值
+		AllowCredentials: cfg.AllowCredentials,       // 使用配置的值
+		ExposeHeaders:    []string{"Content-Length"}, // [建议] 如果前端需要访问其他自定义响应头，在这里列出
+		MaxAge:           maxAgeDuration,             // 使用计算后的 Duration
 	})
 }
