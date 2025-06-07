@@ -95,6 +95,7 @@ jobs:
               --name ${CONTAINER_NAME} \
               --network ${DOCKER_NETWORK_NAME} \
               -e SERVER_LISTEN_ADDR=":${{ env.APP_CONTAINER_PORT }}" \
+              -e SERVER_REQUESTTIMEOUT="60" \
               -e JWTCONFIG_SECRET_KEY="${{ secrets.PROD_JWT_SECRET_KEY }}" \
               -e JWTCONFIG_REFRESH_SECRET="${{ secrets.PROD_JWT_REFRESH_SECRET }}" \
               -e PROD_CORS_ALLOW_ORIGINS="${{ secrets.PROD_CORS_ALLOW_ORIGINS }}" \

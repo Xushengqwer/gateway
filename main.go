@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,14 @@ func main() {
 	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
 		cfg.Server.ListenAddr = addr
 		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
+	}
+
+	// --- 这是新增的、最关键的修改 ---
+	if timeoutStr := os.Getenv("SERVER_REQUESTTIMEOUT"); timeoutStr != "" {
+		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil {
+			cfg.Server.RequestTimeout = time.Duration(timeoutSec) * time.Second
+			log.Printf("通过环境变量覆盖了 Server.RequestTimeout: %v\n", cfg.Server.RequestTimeout)
+		}
 	}
 
 	// 覆盖JWT密钥
