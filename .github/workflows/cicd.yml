@@ -1,0 +1,106 @@
+name: CI/CD for Gateway Service
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  APP_CONTAINER_PORT: 8080 # Gateway 监听的端口
+
+jobs:
+  build-and-push-to-ghcr:
+    # ... (这个 job 的内容与之前服务完全相同，直接复用) ...
+    name: Build and Push Gateway to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag_short_sha: ${{ steps.extract_sha_tag.outputs.sha_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha,format=short,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build and push Docker image to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Extract short SHA tag from metadata
+        id: extract_sha_tag
+        run: |
+          TAGS="${{ steps.meta.outputs.tags }}"
+          SHA_TAG=$(echo "$TAGS" | tr ',' '\n' | grep -v 'latest' | grep "ghcr.io/${{ github.repository }}:" | head -n 1 | sed 's/.*://')
+          if [ -z "$SHA_TAG" ]; then
+            echo "Falling back to truncated github.sha"
+            SHA_TAG=$(echo "${{ github.sha }}" | cut -c1-7)
+          fi
+          echo "sha_tag=$SHA_TAG" >> $GITHUB_OUTPUT
+
+  deploy-to-cvm:
+    name: Deploy Gateway to Tencent Cloud CVM
+    runs-on: ubuntu-latest
+    needs: build-and-push-to-ghcr
+    steps:
+      - name: Deploy Gateway to CVM
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.CVM_HOST }}
+          username: ${{ secrets.CVM_USERNAME }}
+          key: ${{ secrets.CVM_SSH_PRIVATE_KEY }}
+          command_timeout: 20m
+          script: |
+            set -e
+            
+            export IMAGE_TAG_TO_PULL="${{ needs.build-and-push-to-ghcr.outputs.image_tag_short_sha }}"
+            export GHCR_IMAGE_BASE_LOWERCASE=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+            export IMAGE_TO_PULL_FULL_NAME="${GHCR_IMAGE_BASE_LOWERCASE}:${IMAGE_TAG_TO_PULL}"
+            export CONTAINER_NAME="gateway-app"
+            export HOST_PORT="8080" # 网关使用 8080 端口对外提供服务
+            export DOCKER_NETWORK_NAME="doer_infra_doer_xyz_dev_network"
+
+            echo "登录 GHCR..."
+            docker login ghcr.io -u ${{ secrets.CVM_GH_USERNAME }} -p ${{ secrets.GHCR_PAT_FOR_CVM }}
+
+            echo "拉取镜像: ${IMAGE_TO_PULL_FULL_NAME}"
+            docker pull ${IMAGE_TO_PULL_FULL_NAME}
+
+            echo "停止并删除旧容器 (如果存在)..."
+            docker stop ${CONTAINER_NAME} || true
+            docker rm ${CONTAINER_NAME} || true
+
+            echo "启动新容器并注入 gateway 的生产环境变量..."
+            docker run -d \
+              -p ${HOST_PORT}:${{ env.APP_CONTAINER_PORT }} \
+              --name ${CONTAINER_NAME} \
+              --network ${DOCKER_NETWORK_NAME} \
+              -e JWTCONFIG_SECRET_KEY="${{ secrets.PROD_JWT_SECRET_KEY }}" \
+              -e JWTCONFIG_REFRESH_SECRET="${{ secrets.PROD_JWT_REFRESH_SECRET }}" \
+              -e PROD_CORS_ALLOW_ORIGINS="${{ secrets.PROD_CORS_ALLOW_ORIGINS }}" \
+              ${IMAGE_TO_PULL_FULL_NAME}
+
+            echo "部署成功! Gateway 应用正在 CVM 的 ${HOST_PORT} 端口上运行。"
+            sleep 10
+            echo "查看 Gateway 容器最新日志:"
+            docker logs --tail 50 ${CONTAINER_NAME}

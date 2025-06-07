@@ -1,30 +1,27 @@
-// 在 gateway/main.go
 package main
 
 import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
-	"github.com/Xushengqwer/gateway/internal/constant"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings" // <-- 新增导入
 	"syscall"
 	"time"
 
 	"github.com/Xushengqwer/gateway/internal/config"
-	gatewayCore "github.com/Xushengqwer/gateway/internal/core"    // 网关内部 core (JWT)
-	"github.com/Xushengqwer/gateway/internal/router"              // 网关内部 router
-	sharedCore "github.com/Xushengqwer/go-common/core"            // 共享库 core (Logger, Config)
-	sharedTracing "github.com/Xushengqwer/go-common/core/tracing" // 共享库 tracing
+	"github.com/Xushengqwer/gateway/internal/constant"
+	gatewayCore "github.com/Xushengqwer/gateway/internal/core"
+	"github.com/Xushengqwer/gateway/internal/router"
+	sharedCore "github.com/Xushengqwer/go-common/core"
+	sharedTracing "github.com/Xushengqwer/go-common/core/tracing"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
-
-	// 导入 OTel HTTP Client Instrumentation
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -32,14 +29,51 @@ func main() {
 	flag.StringVar(&configFile, "config", "config/development.yaml", "Path to configuration file")
 	flag.Parse()
 
-	// --- 1. 加载配置 (修正) ---
+	// 1. 加载配置
 	var cfg config.GatewayConfig
 	if err := sharedCore.LoadConfig(configFile, &cfg); err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
-	fmt.Printf("Loaded config: %+v\n", &cfg) // 打印指针地址内容
 
-	// --- 2. 初始化 Logger (修正) ---
+	// --- 手动从环境变量覆盖关键配置 ---
+	log.Println("检查环境变量以覆盖 Gateway 的文件配置...")
+	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
+		cfg.JWTConfig.SecretKey = key
+		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
+	}
+	if key := os.Getenv("JWTCONFIG_REFRESH_SECRET"); key != "" {
+		cfg.JWTConfig.RefreshSecret = key
+		log.Println("通过环境变量覆盖了 JWTConfig.RefreshSecret")
+	}
+	if origins := os.Getenv("PROD_CORS_ALLOW_ORIGINS"); origins != "" {
+		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
+		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
+	}
+	// 动态覆盖下游服务地址
+	for i := range cfg.Services {
+		serviceName := cfg.Services[i].Name
+		var newHost string
+		var newPort int
+		switch serviceName {
+		case "user-hub-service":
+			newHost = "user-hub-app"
+			newPort = 8081
+		case "post-service":
+			newHost = "post-app"
+			newPort = 8082
+		case "post-search-service":
+			newHost = "post-search-app"
+			newPort = 8083
+		}
+		if newHost != "" {
+			cfg.Services[i].Host = newHost
+			cfg.Services[i].Port = newPort
+			log.Printf("通过环境变量覆盖了服务 %s 的地址: Host=%s, Port=%d\n", serviceName, newHost, newPort)
+		}
+	}
+	// --- 结束环境变量覆盖 ---
+
+	// 2. 初始化 Logger
 	logger, err := sharedCore.NewZapLogger(cfg.ZapConfig)
 	if err != nil {
 		log.Fatalf("初始化 ZapLogger 失败: %v", err)
@@ -50,7 +84,7 @@ func main() {
 		}
 	}()
 
-	// --- 3. 初始化 TracerProvider (如果启用) ---
+	// 3. 初始化 TracerProvider (如果启用)
 	var otelTransport http.RoundTripper = http.DefaultTransport
 	if cfg.TracerConfig.Enabled {
 		shutdownTracer, err := sharedTracing.InitTracerProvider(constant.ServiceName, constant.ServiceVersion, cfg.TracerConfig)
@@ -63,34 +97,28 @@ func main() {
 			}
 		}()
 		logger.Info("分布式追踪已初始化")
-
-		// --- 关键: 创建 OTel-instrumented Transport ---
-		// 这个 transport 将用于反向代理发出的请求
 		otelTransport = otelhttp.NewTransport(http.DefaultTransport)
 	} else {
 		logger.Info("分布式追踪已禁用")
 	}
 
-	// --- 4. 初始化 Gin 引擎 ---
-	gin.SetMode(gin.ReleaseMode) // 或根据环境设置
-	r := gin.New()               // 使用 New() 以便完全控制中间件
+	// 4. 初始化 Gin 引擎
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
 
-	// --- 5. 初始化 JWT 工具 ---
+	// 5. 初始化 JWT 工具
 	jwtUtility := gatewayCore.NewJWTUtility(&cfg, logger)
 
-	// --- 6. 设置路由和所有中间件 ---
-	// 将依赖项传递给路由设置函数
-	router.SetupRouter(r, &cfg, logger, jwtUtility, otelTransport) // <--- 调用新的设置函数
+	// 6. 设置路由和所有中间件
+	router.SetupRouter(r, &cfg, logger, jwtUtility, otelTransport)
 
-	// --- 7. 创建 HTTP 服务器 ---
-	// 确保 cfg.Server.ListenAddr 在 GatewayConfig 中定义
+	// 7. 创建 HTTP 服务器
 	srv := &http.Server{
 		Addr:    cfg.Server.ListenAddr,
 		Handler: r,
-		// 可以添加 ReadTimeout, WriteTimeout 等设置
 	}
 
-	// --- 8. 启动和优雅关闭 (保持不变) ---
+	// 8. 启动和优雅关闭
 	go func() {
 		logger.Info("Starting gateway server", zap.String("addr", cfg.Server.ListenAddr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -103,7 +131,7 @@ func main() {
 	<-quit
 	logger.Info("Shutting down gateway server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // 使用 cfg.Server.ShutdownTimeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
