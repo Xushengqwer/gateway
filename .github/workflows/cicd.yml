@@ -96,11 +96,12 @@ jobs:
               --name ${CONTAINER_NAME} \
               --network ${DOCKER_NETWORK_NAME} \
               -e SERVER_LISTEN_ADDR=":${{ env.APP_CONTAINER_PORT }}" \
+              -e SERVER_REQUESTTIMEOUT="60" \
               -e JWTCONFIG_SECRET_KEY="${{ secrets.PROD_JWT_SECRET_KEY }}" \
               -e JWTCONFIG_REFRESH_SECRET="${{ secrets.PROD_JWT_REFRESH_SECRET }}" \
               -e PROD_CORS_ALLOW_ORIGINS="${{ secrets.PROD_CORS_ALLOW_ORIGINS }}" \
               ${IMAGE_TO_PULL_FULL_NAME}
-
+            
             echo "部署成功! Gateway 应用正在 CVM 的 ${HOST_PORT} 端口上运行。"
             sleep 10
             echo "查看 Gateway 容器最新日志:"

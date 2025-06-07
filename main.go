@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings" // 确保导入
 	"syscall"
 	"time"
@@ -44,6 +45,14 @@ func main() {
 		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
 	}
 	// --- 结束新增部分 ---
+
+	if timeoutStr := os.Getenv("SERVER_REQUESTTIMEOUT"); timeoutStr != "" {
+		// 期望环境变量的值是一个不带单位的秒数，例如 "60"
+		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil {
+			cfg.Server.RequestTimeout = time.Duration(timeoutSec) * time.Second
+			log.Printf("通过环境变量覆盖了 Server.RequestTimeout: %v\n", cfg.Server.RequestTimeout)
+		}
+	}
 
 	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
 		cfg.JWTConfig.SecretKey = key
