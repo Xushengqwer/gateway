@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json" // <-- 新增导入，用于格式化打印
 	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -36,64 +35,32 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// --- 手动从环境变量覆盖关键配置 (生产环境部署核心) ---
-	log.Println("检查环境变量以覆盖 Gateway 的文件配置...")
+	// --- DEBUGGING: 打印从文件加载后的完整配置 ---
+	log.Println("--- DEBUG START: 打印从文件加载后的初始配置 ---")
 
-	// 覆盖服务器监听地址
-	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
-		cfg.Server.ListenAddr = addr
-		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
+	// 使用 JSON 格式化打印，结构更清晰
+	configBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Printf("DEBUG: 无法将配置序列化为 JSON 进行打印: %v", err)
+	} else {
+		// 打印 Viper 解析后的完整配置结构体
+		log.Printf("DEBUG: Viper 加载的配置内容如下:\n%s\n", string(configBytes))
 	}
 
-	// --- 这是新增的、最关键的修改 ---
-	if timeoutStr := os.Getenv("SERVER_REQUESTTIMEOUT"); timeoutStr != "" {
-		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil {
-			cfg.Server.RequestTimeout = time.Duration(timeoutSec) * time.Second
-			log.Printf("通过环境变量覆盖了 Server.RequestTimeout: %v\n", cfg.Server.RequestTimeout)
-		}
+	// 专门检查几个关键字段的值
+	log.Printf("DEBUG: 加载后 cfg.Server.ListenAddr 的值是: '%s'", cfg.Server.ListenAddr)
+	log.Printf("DEBUG: 加载后 cfg.Services 切片的长度是: %d", len(cfg.Services))
+	if len(cfg.Services) > 0 {
+		log.Printf("DEBUG: 第一个服务 (Services[0]) 的名称是: '%s'", cfg.Services[0].Name)
+	} else {
+		log.Println("DEBUG: 警告！cfg.Services 列表为空，这会导致网关无法注册任何代理路由！")
 	}
+	log.Println("--- DEBUG END ---")
+	// --- 结束 DEBUGGING ---
 
-	// 覆盖JWT密钥
-	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
-		cfg.JWTConfig.SecretKey = key
-		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
-	}
-	if key := os.Getenv("JWTCONFIG_REFRESH_SECRET"); key != "" {
-		cfg.JWTConfig.RefreshSecret = key
-		log.Println("通过环境变量覆盖了 JWTConfig.RefreshSecret")
-	}
-
-	// 覆盖CORS允许的来源
-	if origins := os.Getenv("PROD_CORS_ALLOW_ORIGINS"); origins != "" {
-		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
-		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
-	}
-
-	// 动态覆盖下游服务地址
-	for i := range cfg.Services {
-		serviceName := cfg.Services[i].Name
-		var newHost string
-		var newPort int
-
-		switch serviceName {
-		case "user-hub-service":
-			newHost = "user-hub-app" // Docker 容器名
-			newPort = 8081           // 容器内部端口
-		case "post-service":
-			newHost = "post-app"
-			newPort = 8082
-		case "post-search-service":
-			newHost = "post-search-app"
-			newPort = 8083
-		}
-
-		if newHost != "" {
-			cfg.Services[i].Host = newHost
-			cfg.Services[i].Port = newPort
-			log.Printf("生产环境: 服务 %s 将被代理到 -> %s:%d\n", serviceName, newHost, newPort)
-		}
-	}
-	// --- 结束环境变量覆盖 ---
+	// 注意：我们暂时不执行环境变量覆盖，以便观察最纯粹的文件加载结果
+	// log.Println("检查环境变量以覆盖 Gateway 的文件配置...")
+	// ... (所有 if os.Getenv(...) 的代码块暂时被跳过) ...
 
 	// 2. 初始化 Logger
 	logger, err := sharedCore.NewZapLogger(cfg.ZapConfig)
@@ -137,6 +104,10 @@ func main() {
 	}
 
 	go func() {
+		// 这里我们做一个保护，如果 ListenAddr 仍然是空的，就 panic，以便在日志中看到明确的失败点
+		if srv.Addr == "" {
+			logger.Fatal("HTTP 服务器启动失败：监听地址 (Addr) 为空！")
+		}
 		logger.Info("Starting gateway server", zap.String("addr", cfg.Server.ListenAddr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("Failed to start server", zap.Error(err))
