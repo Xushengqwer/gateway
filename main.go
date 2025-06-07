@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json" // <-- 新增导入，用于格式化打印
 	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,7 +19,6 @@ import (
 	"github.com/Xushengqwer/gateway/internal/router"
 	sharedCore "github.com/Xushengqwer/go-common/core"
 	sharedTracing "github.com/Xushengqwer/go-common/core/tracing"
-
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
@@ -26,37 +26,66 @@ import (
 
 func main() {
 	var configFile string
-	// CMD 中指定的路径是 /app/config/config.yaml，这里保持默认值以防万一
 	flag.StringVar(&configFile, "config", "/app/config/config.yaml", "Path to configuration file")
 	flag.Parse()
 
 	// 1. 加载配置
 	var cfg config.GatewayConfig
 	if err := sharedCore.LoadConfig(configFile, &cfg); err != nil {
-		// 增加一个明确的文件存在性检查，让错误更清晰
-		if _, statErr := os.Stat(configFile); os.IsNotExist(statErr) {
-			log.Fatalf("FATAL: 配置文件未在指定路径找到 (File Not Found at '%s'): %v", configFile, statErr)
-		}
-		log.Fatalf("FATAL: 加载配置文件失败 (%s): %v", configFile, err)
+		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// --- DEBUGGING: 打印从文件加载后的完整配置 ---
-	log.Println("--- DEBUG START: 打印从文件加载后的初始配置 ---")
-	configBytes, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		log.Printf("DEBUG: 无法将配置序列化为 JSON 进行打印: %v", err)
-	} else {
-		log.Printf("DEBUG: Viper 加载的配置内容如下:\n%s\n", string(configBytes))
+	// --- 手动从环境变量覆盖关键配置 (最终生产版) ---
+	log.Println("检查环境变量以覆盖文件配置...")
+
+	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
+		cfg.Server.ListenAddr = addr
+		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
 	}
-	log.Printf("DEBUG: 加载后 cfg.Server.ListenAddr 的值是: '%s'", cfg.Server.ListenAddr)
-	log.Printf("DEBUG: 加载后 cfg.Services 切片的长度是: %d", len(cfg.Services))
-	if len(cfg.Services) > 0 {
-		log.Printf("DEBUG: 第一个服务 (Services[0]) 的名称是: '%s'", cfg.Services[0].Name)
-	} else {
-		log.Println("DEBUG: 警告！cfg.Services 列表为空，这很可能是导致 404 或 panic 的原因！")
+	if timeoutStr := os.Getenv("SERVER_REQUESTTIMEOUT"); timeoutStr != "" {
+		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil {
+			cfg.Server.RequestTimeout = time.Duration(timeoutSec) * time.Second
+			log.Printf("通过环境变量覆盖了 Server.RequestTimeout: %v\n", cfg.Server.RequestTimeout)
+		}
 	}
-	log.Println("--- DEBUG END ---")
-	// --- 结束 DEBUGGING ---
+	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
+		cfg.JWTConfig.SecretKey = key
+		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
+	}
+	if key := os.Getenv("JWTCONFIG_REFRESH_SECRET"); key != "" {
+		cfg.JWTConfig.RefreshSecret = key
+		log.Println("通过环境变量覆盖了 JWTConfig.RefreshSecret")
+	}
+	if origins := os.Getenv("PROD_CORS_ALLOW_ORIGINS"); origins != "" {
+		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
+		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
+	}
+
+	// 动态覆盖下游服务地址
+	for i := range cfg.Services {
+		serviceName := cfg.Services[i].Name
+		var newHost string
+		var newPort int
+
+		switch serviceName {
+		case "user-hub-service":
+			newHost = "user-hub-app"
+			newPort = 8081
+		case "post-service":
+			newHost = "post-app"
+			newPort = 8082
+		case "post-search-service":
+			newHost = "post-search-app"
+			newPort = 8083
+		}
+
+		if newHost != "" {
+			cfg.Services[i].Host = newHost
+			cfg.Services[i].Port = newPort
+			log.Printf("生产环境: 服务 %s 将被代理到 -> %s:%d\n", serviceName, newHost, newPort)
+		}
+	}
+	// --- 结束环境变量覆盖 ---
 
 	// 2. 初始化 Logger
 	logger, err := sharedCore.NewZapLogger(cfg.ZapConfig)
