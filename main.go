@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
+	"strings" // 确保导入
 	"syscall"
 	"time"
 
@@ -35,12 +35,16 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// --- 手动从环境变量覆盖关键配置 ---
+	// --- 手动从环境变量覆盖关键配置 (最终修正版) ---
 	log.Println("检查环境变量以覆盖 Gateway 的文件配置...")
+
+	// --- 这是新增的、最关键的修改 ---
 	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
 		cfg.Server.ListenAddr = addr
 		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
 	}
+	// --- 结束新增部分 ---
+
 	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
 		cfg.JWTConfig.SecretKey = key
 		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
@@ -53,17 +57,15 @@ func main() {
 		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
 		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
 	}
-
-	// --- 动态覆盖下游服务地址 (最终修正版) ---
+	// 动态覆盖下游服务地址
 	for i := range cfg.Services {
 		serviceName := cfg.Services[i].Name
 		var newHost string
 		var newPort int
-
 		switch serviceName {
 		case "user-hub-service":
-			newHost = "user-hub-app" // Docker 服务名
-			newPort = 8081           // 容器内部端口
+			newHost = "user-hub-app"
+			newPort = 8081
 		case "post-service":
 			newHost = "post-app"
 			newPort = 8082
@@ -71,7 +73,6 @@ func main() {
 			newHost = "post-search-app"
 			newPort = 8083
 		}
-
 		if newHost != "" {
 			cfg.Services[i].Host = newHost
 			cfg.Services[i].Port = newPort
@@ -92,7 +93,7 @@ func main() {
 	}()
 	logger.Info("Logger 初始化成功")
 
-	// 3. 初始化 TracerProvider
+	// ... (main 函数的其余部分保持不变) ...
 	var otelTransport http.RoundTripper = http.DefaultTransport
 	if cfg.TracerConfig.Enabled {
 		shutdownTracer, err := sharedTracing.InitTracerProvider(constant.ServiceName, constant.ServiceVersion, cfg.TracerConfig)
@@ -110,23 +111,17 @@ func main() {
 		logger.Info("分布式追踪已禁用")
 	}
 
-	// 4. 初始化 Gin 引擎
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 
-	// 5. 初始化 JWT 工具
 	jwtUtility := gatewayCore.NewJWTUtility(&cfg, logger)
-
-	// 6. 设置路由和所有中间件
 	router.SetupRouter(r, &cfg, logger, jwtUtility, otelTransport)
 
-	// 7. 创建 HTTP 服务器
 	srv := &http.Server{
 		Addr:    cfg.Server.ListenAddr,
 		Handler: r,
 	}
 
-	// 8. 启动和优雅关闭
 	go func() {
 		logger.Info("Starting gateway server", zap.String("addr", cfg.Server.ListenAddr))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
