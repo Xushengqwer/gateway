@@ -8,8 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings" // 确保导入
+	"strings"
 	"syscall"
 	"time"
 
@@ -36,24 +35,16 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// --- 手动从环境变量覆盖关键配置 (最终修正版) ---
+	// --- 手动从环境变量覆盖关键配置 (生产环境部署核心) ---
 	log.Println("检查环境变量以覆盖 Gateway 的文件配置...")
 
-	// --- 这是新增的、最关键的修改 ---
+	// 覆盖服务器监听地址
 	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
 		cfg.Server.ListenAddr = addr
 		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
 	}
-	// --- 结束新增部分 ---
 
-	if timeoutStr := os.Getenv("SERVER_REQUESTTIMEOUT"); timeoutStr != "" {
-		// 期望环境变量的值是一个不带单位的秒数，例如 "60"
-		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil {
-			cfg.Server.RequestTimeout = time.Duration(timeoutSec) * time.Second
-			log.Printf("通过环境变量覆盖了 Server.RequestTimeout: %v\n", cfg.Server.RequestTimeout)
-		}
-	}
-
+	// 覆盖JWT密钥
 	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
 		cfg.JWTConfig.SecretKey = key
 		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
@@ -62,19 +53,23 @@ func main() {
 		cfg.JWTConfig.RefreshSecret = key
 		log.Println("通过环境变量覆盖了 JWTConfig.RefreshSecret")
 	}
+
+	// 覆盖CORS允许的来源
 	if origins := os.Getenv("PROD_CORS_ALLOW_ORIGINS"); origins != "" {
 		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
 		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
 	}
+
 	// 动态覆盖下游服务地址
 	for i := range cfg.Services {
 		serviceName := cfg.Services[i].Name
 		var newHost string
 		var newPort int
+
 		switch serviceName {
 		case "user-hub-service":
-			newHost = "user-hub-app"
-			newPort = 8081
+			newHost = "user-hub-app" // Docker 容器名
+			newPort = 8081           // 容器内部端口
 		case "post-service":
 			newHost = "post-app"
 			newPort = 8082
@@ -82,6 +77,7 @@ func main() {
 			newHost = "post-search-app"
 			newPort = 8083
 		}
+
 		if newHost != "" {
 			cfg.Services[i].Host = newHost
 			cfg.Services[i].Port = newPort

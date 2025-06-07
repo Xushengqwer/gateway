@@ -10,7 +10,6 @@ env:
 
 jobs:
   build-and-push-to-ghcr:
-    # ... (这个 job 的内容与之前服务完全相同，无需修改) ...
     name: Build and Push Gateway to GHCR
     runs-on: ubuntu-latest
     permissions:
@@ -77,7 +76,7 @@ jobs:
             export GHCR_IMAGE_BASE_LOWERCASE=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
             export IMAGE_TO_PULL_FULL_NAME="${GHCR_IMAGE_BASE_LOWERCASE}:${IMAGE_TAG_TO_PULL}"
             export CONTAINER_NAME="gateway-app"
-            export HOST_PORT="8080" # 网关使用 8080 端口对外提供服务
+            export HOST_PORT="8080"
             export DOCKER_NETWORK_NAME="doer_infra_doer_xyz_dev_network"
 
             echo "登录 GHCR..."
@@ -96,12 +95,11 @@ jobs:
               --name ${CONTAINER_NAME} \
               --network ${DOCKER_NETWORK_NAME} \
               -e SERVER_LISTEN_ADDR=":${{ env.APP_CONTAINER_PORT }}" \
-              -e SERVER_REQUESTTIMEOUT="60" \
               -e JWTCONFIG_SECRET_KEY="${{ secrets.PROD_JWT_SECRET_KEY }}" \
               -e JWTCONFIG_REFRESH_SECRET="${{ secrets.PROD_JWT_REFRESH_SECRET }}" \
               -e PROD_CORS_ALLOW_ORIGINS="${{ secrets.PROD_CORS_ALLOW_ORIGINS }}" \
               ${IMAGE_TO_PULL_FULL_NAME}
-            
+
             echo "部署成功! Gateway 应用正在 CVM 的 ${HOST_PORT} 端口上运行。"
             sleep 10
             echo "查看 Gateway 容器最新日志:"
