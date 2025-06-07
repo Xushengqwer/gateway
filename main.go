@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings" // <-- 新增导入
+	"strings"
 	"syscall"
 	"time"
 
@@ -37,6 +37,10 @@ func main() {
 
 	// --- 手动从环境变量覆盖关键配置 ---
 	log.Println("检查环境变量以覆盖 Gateway 的文件配置...")
+	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
+		cfg.Server.ListenAddr = addr
+		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
+	}
 	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
 		cfg.JWTConfig.SecretKey = key
 		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
@@ -49,15 +53,17 @@ func main() {
 		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
 		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
 	}
-	// 动态覆盖下游服务地址
+
+	// --- 动态覆盖下游服务地址 (最终修正版) ---
 	for i := range cfg.Services {
 		serviceName := cfg.Services[i].Name
 		var newHost string
 		var newPort int
+
 		switch serviceName {
 		case "user-hub-service":
-			newHost = "user-hub-app"
-			newPort = 8081
+			newHost = "user-hub-app" // Docker 服务名
+			newPort = 8081           // 容器内部端口
 		case "post-service":
 			newHost = "post-app"
 			newPort = 8082
@@ -65,10 +71,11 @@ func main() {
 			newHost = "post-search-app"
 			newPort = 8083
 		}
+
 		if newHost != "" {
 			cfg.Services[i].Host = newHost
 			cfg.Services[i].Port = newPort
-			log.Printf("通过环境变量覆盖了服务 %s 的地址: Host=%s, Port=%d\n", serviceName, newHost, newPort)
+			log.Printf("生产环境: 服务 %s 将被代理到 -> %s:%d\n", serviceName, newHost, newPort)
 		}
 	}
 	// --- 结束环境变量覆盖 ---
@@ -83,8 +90,9 @@ func main() {
 			logger.Error("ZapLogger Sync 失败", zap.Error(err))
 		}
 	}()
+	logger.Info("Logger 初始化成功")
 
-	// 3. 初始化 TracerProvider (如果启用)
+	// 3. 初始化 TracerProvider
 	var otelTransport http.RoundTripper = http.DefaultTransport
 	if cfg.TracerConfig.Enabled {
 		shutdownTracer, err := sharedTracing.InitTracerProvider(constant.ServiceName, constant.ServiceVersion, cfg.TracerConfig)

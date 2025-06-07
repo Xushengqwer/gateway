@@ -6,11 +6,11 @@ on:
       - main
 
 env:
-  APP_CONTAINER_PORT: 8080 # Gateway 监听的端口
+  APP_CONTAINER_PORT: 8080 # Gateway 容器内部监听的端口
 
 jobs:
   build-and-push-to-ghcr:
-    # ... (这个 job 的内容与之前服务完全相同，直接复用) ...
+    # ... (这个 job 的内容与之前服务完全相同，无需修改) ...
     name: Build and Push Gateway to GHCR
     runs-on: ubuntu-latest
     permissions:
@@ -95,6 +95,7 @@ jobs:
               -p ${HOST_PORT}:${{ env.APP_CONTAINER_PORT }} \
               --name ${CONTAINER_NAME} \
               --network ${DOCKER_NETWORK_NAME} \
+              -e SERVER_LISTEN_ADDR=":${{ env.APP_CONTAINER_PORT }}" \
               -e JWTCONFIG_SECRET_KEY="${{ secrets.PROD_JWT_SECRET_KEY }}" \
               -e JWTCONFIG_REFRESH_SECRET="${{ secrets.PROD_JWT_REFRESH_SECRET }}" \
               -e PROD_CORS_ALLOW_ORIGINS="${{ secrets.PROD_CORS_ALLOW_ORIGINS }}" \
