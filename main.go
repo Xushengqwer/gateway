@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -38,16 +37,6 @@ func main() {
 	// --- 手动从环境变量覆盖关键配置 (最终生产版) ---
 	log.Println("检查环境变量以覆盖文件配置...")
 
-	if addr := os.Getenv("SERVER_LISTEN_ADDR"); addr != "" {
-		cfg.Server.ListenAddr = addr
-		log.Printf("通过环境变量覆盖了 Server.ListenAddr: %s\n", addr)
-	}
-	if timeoutStr := os.Getenv("SERVER_REQUESTTIMEOUT"); timeoutStr != "" {
-		if timeoutSec, err := strconv.Atoi(timeoutStr); err == nil {
-			cfg.Server.RequestTimeout = time.Duration(timeoutSec) * time.Second
-			log.Printf("通过环境变量覆盖了 Server.RequestTimeout: %v\n", cfg.Server.RequestTimeout)
-		}
-	}
 	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
 		cfg.JWTConfig.SecretKey = key
 		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
