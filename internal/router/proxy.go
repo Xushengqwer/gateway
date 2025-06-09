@@ -31,7 +31,6 @@ func SetupRouter(r *gin.Engine, cfg *config.GatewayConfig, logger *sharedCore.Za
 		logger.Info("OpenTelemetry 中间件已启用。")
 	}
 	r.Use(sharedMiddleware.ErrorHandlingMiddleware(logger))
-	r.Use(sharedMiddleware.RequestIDMiddleware())
 	if baseLogger := logger.Logger(); baseLogger != nil {
 		r.Use(sharedMiddleware.RequestLoggerMiddleware(baseLogger))
 	} else {

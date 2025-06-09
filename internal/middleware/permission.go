@@ -93,7 +93,7 @@ func FindBestMatchingRoute(routes []config.RouteConfig, relativePath, method str
 func PermissionMiddleware(cfg *config.GatewayConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// --- 获取用户状态和角色 ---
-		statusVal, exists := c.Get(constants.StatusContextKey)
+		statusVal, exists := c.Get(string(constants.StatusKey))
 		if !exists {
 			response.RespondError(c, http.StatusForbidden, response.ErrCodeClientForbidden, "状态获取失败")
 			c.Abort()
@@ -112,7 +112,7 @@ func PermissionMiddleware(cfg *config.GatewayConfig) gin.HandlerFunc {
 			return
 		}
 
-		roleValue, exists := c.Get(constants.RoleContextKey)
+		roleValue, exists := c.Get(string(constants.RoleKey))
 		if !exists {
 			response.RespondError(c, http.StatusForbidden, response.ErrCodeClientForbidden, "权限不足 (无法获取角色)")
 			c.Abort()

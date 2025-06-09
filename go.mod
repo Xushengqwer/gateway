@@ -3,7 +3,7 @@ module github.com/Xushengqwer/gateway
 go 1.23.7
 
 require (
-	github.com/Xushengqwer/go-common v0.0.0-20250608144817-7af11f62dd04
+	github.com/Xushengqwer/go-common v0.0.0-20250609053903-e9d21127601b
 	github.com/gin-contrib/cors v1.7.5
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.2.2

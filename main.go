@@ -25,7 +25,7 @@ import (
 
 func main() {
 	var configFile string
-	flag.StringVar(&configFile, "config", "/config/config.yaml", "Path to configuration file")
+	flag.StringVar(&configFile, "config", "/config/config.development.yaml", "Path to configuration file")
 	flag.Parse()
 
 	// 1. 加载配置
