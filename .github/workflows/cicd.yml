@@ -1,14 +1,15 @@
+# 文件路径: .github/workflows/cicd.yml
+# 最终修正版
+
 name: Deploy Gateway Service
 
 on:
   push:
     branches:
       - main
-    # [修改] 增加对根目录 Dockerfile 和本工作流文件的监控
-    # 这样修改 Dockerfile 或 CICD 文件本身也能触发运行
     paths:
       - 'gateway/**'
-      - 'go-common/**' # 如果公共模块也在此仓库
+      - 'go-common/**'
       - 'Dockerfile'
       - '.github/workflows/**'
 
@@ -20,7 +21,6 @@ jobs:
       contents: read
       packages: write
     outputs:
-      # [修改] 简化输出，直接使用 docker/metadata-action 的版本输出
       image_tag: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout code
@@ -40,7 +40,6 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          # 使用 owner 变量防止 fork 仓库时命名冲突
           images: ghcr.io/${{ github.repository_owner }}/gateway-service
           tags: |
             type=sha,format=short
@@ -50,7 +49,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          # [确认] 确保这个 Dockerfile 路径是正确的
           file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -73,41 +71,36 @@ jobs:
           script: |
             set -e
 
-            # 使用上一个 job 简化后的输出
+            # --- 变量定义 ---
             export IMAGE_TAG_TO_PULL="${{ needs.build-and-push.outputs.image_tag }}"
-            # 同样转换为小写
             export GHCR_IMAGE_BASE_LOWERCASE=$(echo "ghcr.io/${{ github.repository_owner }}/gateway-service" | tr '[:upper:]' '[:lower:]')
             export IMAGE_TO_PULL_FULL_NAME="${GHCR_IMAGE_BASE_LOWERCASE}:${IMAGE_TAG_TO_PULL}"
             export CONTAINER_NAME="gateway-app"
             export HOST_PORT="8080"
             export DOCKER_NETWORK_NAME="doer_infra_doer_xyz_dev_network"
 
+            # --- 脚本执行 ---
             echo "登录 GHCR..."
-            # 使用 password-stdin 更安全
             echo "${{ secrets.GHCR_PAT_FOR_CVM }}" | docker login ghcr.io -u ${{ secrets.CVM_GH_USERNAME }} --password-stdin
 
             echo "拉取镜像: ${IMAGE_TO_PULL_FULL_NAME}"
             docker pull ${IMAGE_TO_PULL_FULL_NAME}
 
             echo "停止并删除旧容器 (如果存在)..."
-            docker stop ${CONTAINER_NAME} || true
-            docker rm ${CONTAINER_NAME} || true
+            # [优化] 将错误输出重定向，使日志更整洁
+            docker stop ${CONTAINER_NAME} >/dev/null 2>&1 || true
+            docker rm ${CONTAINER_NAME} >/dev/null 2>&1 || true
 
-            # [核心修改] 启动新容器，只注入必要的密钥和动态配置
+            # [核心修正] 启动新容器，使用更健壮的多行格式
             echo "启动新容器..."
             docker run -d \
               -p ${HOST_PORT}:8080 \
               --name ${CONTAINER_NAME} \
               --network ${DOCKER_NETWORK_NAME} \
               --restart unless-stopped \
-              \
-              # [关键] 注入 JWT 密钥和 CORS 域名
-              # 容器内的环境变量名 (如 JWTCONFIG_SECRET_KEY) 与 Viper 期望的匹配
-              # 变量的值来自你在 GitHub 设置的 Secrets (如 PROD_JWT_SECRET_KEY)
               -e JWTCONFIG_SECRET_KEY='${{ secrets.PROD_JWT_SECRET_KEY }}' \
               -e JWTCONFIG_REFRESH_SECRET='${{ secrets.PROD_JWT_REFRESH_SECRET }}' \
               -e CORS_ALLOWORIGINS='${{ secrets.PROD_CORS_ALLOW_ORIGINS }}' \
-              \
               ${IMAGE_TO_PULL_FULL_NAME}
 
             echo "部署成功! Gateway 应用正在 CVM 的 ${HOST_PORT} 端口上运行。"
