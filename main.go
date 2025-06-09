@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +25,7 @@ import (
 
 func main() {
 	var configFile string
-	flag.StringVar(&configFile, "config", "/app/config/config.yaml", "Path to configuration file")
+	flag.StringVar(&configFile, "config", "/config/config.yaml", "Path to configuration file")
 	flag.Parse()
 
 	// 1. 加载配置
@@ -34,47 +34,13 @@ func main() {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	// --- 手动从环境变量覆盖关键配置 (最终生产版) ---
-	log.Println("检查环境变量以覆盖文件配置...")
-
-	if key := os.Getenv("JWTCONFIG_SECRET_KEY"); key != "" {
-		cfg.JWTConfig.SecretKey = key
-		log.Println("通过环境变量覆盖了 JWTConfig.SecretKey")
+	// 2. [新增] 打印最终生效的配置以供调试
+	// 使用 json 包将配置结构体格式化为可读的字符串
+	configBytes, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		log.Fatalf("无法序列化配置以进行打印: %v", err)
 	}
-	if key := os.Getenv("JWTCONFIG_REFRESH_SECRET"); key != "" {
-		cfg.JWTConfig.RefreshSecret = key
-		log.Println("通过环境变量覆盖了 JWTConfig.RefreshSecret")
-	}
-	if origins := os.Getenv("PROD_CORS_ALLOW_ORIGINS"); origins != "" {
-		cfg.Cors.AllowOrigins = strings.Split(origins, ",")
-		log.Printf("通过环境变量覆盖了 CORS AllowOrigins: %v\n", cfg.Cors.AllowOrigins)
-	}
-
-	// 动态覆盖下游服务地址
-	for i := range cfg.Services {
-		serviceName := cfg.Services[i].Name
-		var newHost string
-		var newPort int
-
-		switch serviceName {
-		case "user-hub-service":
-			newHost = "user-hub-app"
-			newPort = 8081
-		case "post-service":
-			newHost = "post-app"
-			newPort = 8082
-		case "post-search-service":
-			newHost = "post-search-app"
-			newPort = 8083
-		}
-
-		if newHost != "" {
-			cfg.Services[i].Host = newHost
-			cfg.Services[i].Port = newPort
-			log.Printf("生产环境: 服务 %s 将被代理到 -> %s:%d\n", serviceName, newHost, newPort)
-		}
-	}
-	// --- 结束环境变量覆盖 ---
+	log.Printf("✅ 配置加载成功！最终生效的配置如下:\n%s\n", string(configBytes))
 
 	// 2. 初始化 Logger
 	logger, err := sharedCore.NewZapLogger(cfg.ZapConfig)

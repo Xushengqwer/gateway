@@ -1,0 +1,171 @@
+# 生产环境配置文件 (可安全提交到代码库)
+server:
+  listen_addr: ":8080"
+  port: "8080"
+  requestTimeout: 10s
+zapConfig:
+  level: "info" # 生产环境建议使用 "info" 级别日志
+  encoding: "json"
+tracerConfig:
+  enabled: true # 生产环境建议开启链路追踪
+  exporter_type: "otlp_grpc"
+  exporter_endpoint: "otel-collector:4317" # Docker 网络内的 Collector 地址
+  sampler_type: "parent_based_traceid_ratio"
+  sampler_param: 0.1
+jwtConfig:
+  # [安全] 密钥将由环境变量 JWTCONFIG_SECRET_KEY 和 JWTCONFIG_REFRESH_SECRET 覆盖
+  secret_key: ""
+  refresh_secret: ""
+  issuer: "user_hub_service"
+rateLimitConfig:
+  capacity: 100
+  refill_interval: 1s
+  cleanup_interval: 5m
+  idle_timeout: 10m
+services:
+  - name: "user-hub-service"
+    prefix: "/api/v1/user-hub"
+    # [部署] Host 将由环境变量 SERVICES_0_HOST 覆盖 (值为 user-hub-app)
+    host: "user-hub-app"
+    port: 8081
+    scheme: "http"
+    publicPaths: # 这些路径不需要认证
+      - "/account/login"
+      - "/account/register"
+      - "/auth/send-captcha"
+      - "/phone/login"
+      - "/wechat/login"
+      - "/auth/refresh-token"
+    routes: # 需要认证和特定权限的路径
+      # 认证管理 (Auth Management)
+      - path: "/auth/logout"
+        methods: ["POST"]
+        allowedRoles: [1, 0]
+        description: "退出登录"
+      # 身份管理 (Identity Management)
+      - path: "/identities"
+        methods: ["POST"]
+        allowedRoles: [1, 0]
+        description: "创建新身份"
+      - path: "/identities/:identityID"
+        methods: ["PUT", "DELETE"]
+        allowedRoles: [1, 0]
+        description: "更新或删除身份信息"
+      - path: "/users/:userID/identities"
+        methods: ["GET"]
+        allowedRoles: [1, 0]
+        description: "获取用户的所有身份信息"
+      - path: "/users/:userID/identity-types"
+        methods: ["GET"]
+        allowedRoles: [1, 0]
+        description: "获取用户的所有身份类型"
+      # 资料管理 (Profile Management - "我的" 资料)
+      - path: "/profile"
+        methods: ["GET", "PUT"]
+        allowedRoles: [1, 0]
+        description: "获取或更新我的账户详情和资料"
+      - path: "/profile/avatar"
+        methods: ["POST"]
+        allowedRoles: [1, 0]
+        description: "上传我的头像"
+      # 用户管理 (User Management - 通常为管理员)
+      - path: "/users"
+        methods: ["POST"]
+        allowedRoles: [0]
+        description: "创建新用户 (管理员)"
+      - path: "/users/:userID"
+        methods: ["GET"]
+        allowedRoles: [1, 0]
+        description: "获取用户信息"
+      - path: "/users/:userID"
+        methods: ["PUT"]
+        allowedRoles: [0]
+        description: "更新用户信息 (管理员)"
+      - path: "/users/:userID"
+        methods: ["DELETE"]
+        allowedRoles: [0]
+        description: "删除用户 (管理员)"
+      - path: "/users/:userID/blacklist"
+        methods: ["PUT"]
+        allowedRoles: [0]
+        description: "拉黑用户 (管理员)"
+      - path: "/users/:userID/profile"
+        methods: ["GET"]
+        allowedRoles: [0]
+        description: "获取指定用户资料 (管理员)"
+      # 用户查询 (User Query - 管理员)
+      - path: "/users/query"
+        methods: ["POST"]
+        allowedRoles: [0]
+        description: "分页查询用户及其资料 (管理员)"
+
+  - name: "post-service"
+    prefix: "/api/v1/post"
+    # [部署] Host 将由环境变量 SERVICES_1_HOST 覆盖 (值为 post-app)
+    host: "post-app"
+    port: 8082
+    scheme: "http"
+    publicPaths:
+      - "/hot-posts"
+      - "/posts/timeline"
+      - "/posts/by-author"
+    routes:
+      # --- 管理员接口 ---
+      - path: "/admin/posts/:post_id"
+        methods: ["DELETE"]
+        allowedRoles: [0]
+        description: "管理员删除指定ID的帖子"
+      - path: "/admin/posts"
+        methods: ["GET"]
+        allowedRoles: [0]
+        description: "按条件列出帖子 (管理员)"
+      - path: "/admin/posts/audit"
+        methods: ["POST"]
+        allowedRoles: [0]
+        description: "审核帖子"
+      - path: "/admin/posts/:id/official-tag"
+        methods: ["PUT"]
+        allowedRoles: [0]
+        description: "更新帖子官方标签 (管理员)"
+      # --- 帖子核心操作 ---
+      - path: "/posts"
+        methods: ["POST"]
+        allowedRoles: [1, 0]
+        description: "创建新帖子"
+      - path: "/posts/mine"
+        methods: ["GET"]
+        allowedRoles: [1, 0]
+        description: "获取我的帖子列表"
+      # --- 获取帖子详情 ---
+      - path: "/posts/:post_id"
+        methods: ["GET"]
+        allowedRoles: [1, 0]
+        description: "获取指定ID的帖子详情 (需要认证)"
+      - path: "/hot-posts/:post_id"
+        methods: ["GET"]
+        allowedRoles: [1, 0]
+        description: "获取指定ID的热门帖子详情 (需要认证)"
+      - path: "/posts/:id"
+        methods: ["DELETE"]
+        allowedRoles: [1, 0]
+        description: "删除指定ID的帖子"
+
+  - name: "post-search-service"
+    prefix: "/api/v1/search"
+    # [部署] Host 将由环境变量 SERVICES_2_HOST 覆盖 (值为 post-search-app)
+    host: "post-search-app"
+    port: 8083
+    scheme: "http"
+    publicPaths:
+      - "/_health"
+      - "/search"
+    routes: []
+
+cors:
+  # [部署] 将由环境变量 CORS_ALLOWORIGINS 覆盖
+  allow_origins:
+    - "https://placeholder-for-prod.com"
+  allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allow_headers: ["Origin", "Content-Type", "Authorization", "X-Requested-With", "X-Platform", "X-User-ID"]
+  allow_credentials: true
+  max_age: 43200
