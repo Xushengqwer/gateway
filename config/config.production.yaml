@@ -7,7 +7,7 @@ zapConfig:
   level: "info" # 生产环境建议使用 "info" 级别日志
   encoding: "json"
 tracerConfig:
-  enabled: true # 生产环境建议开启链路追踪
+  enabled: false # 生产环境建议开启链路追踪
   exporter_type: "otlp_grpc"
   exporter_endpoint: "otel-collector:4317" # Docker 网络内的 Collector 地址
   sampler_type: "parent_based_traceid_ratio"
