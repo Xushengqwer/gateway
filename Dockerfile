@@ -15,7 +15,7 @@ COPY . .
 
 # 3. 构建应用
 ENV CGO_ENABLED=0 GOOS=linux
-RUN go build -o /app/gateway_server ./gateway/main.go # 注意：因为是全量复制，需要指定 main.go 的路径
+RUN go build -o /app/gateway_server ./gateway/main.go
 
 # --- 阶段 2: 最终镜像 ---
 FROM alpine:3.18
