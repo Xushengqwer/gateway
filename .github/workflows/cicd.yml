@@ -4,19 +4,24 @@ on:
   push:
     branches:
       - main
+    # [修改] 增加对根目录 Dockerfile 和本工作流文件的监控
+    # 这样修改 Dockerfile 或 CICD 文件本身也能触发运行
     paths:
-      - 'gateway/**' # 仅当网关相关代码变更时触发
-      - '.github/workflows/deploy.yml' # 工作流自身变更也应触发
+      - 'gateway/**'
+      - 'go-common/**' # 如果公共模块也在此仓库
+      - 'Dockerfile'
+      - '.github/workflows/**'
 
 jobs:
   build-and-push:
-    name: Build and Push Docker Image
+    name: Build and Push Gateway to GHCR
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     outputs:
-      image_tag: ${{ steps.meta.outputs.version }} # 输出一个明确的 tag
+      # [修改] 简化输出，直接使用 docker/metadata-action 的版本输出
+      image_tag: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -35,16 +40,18 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/gateway-service # 使用 owner 防止 fork 仓库名问题
+          # 使用 owner 变量防止 fork 仓库时命名冲突
+          images: ghcr.io/${{ github.repository_owner }}/gateway-service
           tags: |
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image
+      - name: Build and push Docker image to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./gateway/Dockerfile # 明确指定 Dockerfile 路径
+          # [确认] 确保这个 Dockerfile 路径是正确的
+          file: ./Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -52,62 +59,58 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy-to-cvm:
-    name: Deploy to Tencent Cloud CVM
+    name: Deploy Gateway to Tencent Cloud CVM
     runs-on: ubuntu-latest
     needs: build-and-push
     steps:
-      - name: Deploy to CVM
+      - name: Deploy Gateway to CVM
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.CVM_HOST }}
           username: ${{ secrets.CVM_USERNAME }}
           key: ${{ secrets.CVM_SSH_PRIVATE_KEY }}
+          command_timeout: 20m
           script: |
-            set -e # 确保脚本在任何命令失败时立即退出
+            set -e
 
-            # --- 变量定义 ---
-            # 从上一个 job 获取镜像 tag
-            export IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
-            # 构造完整的镜像名称 (并转换为小写，因为 GHCR 要求)
-            export GHCR_IMAGE_NAME_LOWER=$(echo "ghcr.io/${{ github.repository_owner }}/gateway-service" | tr '[:upper:]' '[:lower:]')
-            export FULL_IMAGE_NAME="${GHCR_IMAGE_NAME_LOWER}:${IMAGE_TAG}"
+            # 使用上一个 job 简化后的输出
+            export IMAGE_TAG_TO_PULL="${{ needs.build-and-push.outputs.image_tag }}"
+            # 同样转换为小写
+            export GHCR_IMAGE_BASE_LOWERCASE=$(echo "ghcr.io/${{ github.repository_owner }}/gateway-service" | tr '[:upper:]' '[:lower:]')
+            export IMAGE_TO_PULL_FULL_NAME="${GHCR_IMAGE_BASE_LOWERCASE}:${IMAGE_TAG_TO_PULL}"
             export CONTAINER_NAME="gateway-app"
-            export DOCKER_NETWORK="doer_infra_doer_xyz_dev_network"
+            export HOST_PORT="8080"
+            export DOCKER_NETWORK_NAME="doer_infra_doer_xyz_dev_network"
 
-            echo "准备部署镜像: ${FULL_IMAGE_NAME}"
-
-            # --- 部署步骤 ---
-            echo "1. 登录到 GitHub Container Registry..."
+            echo "登录 GHCR..."
+            # 使用 password-stdin 更安全
             echo "${{ secrets.GHCR_PAT_FOR_CVM }}" | docker login ghcr.io -u ${{ secrets.CVM_GH_USERNAME }} --password-stdin
 
-            echo "2. 拉取最新镜像..."
-            docker pull ${FULL_IMAGE_NAME}
+            echo "拉取镜像: ${IMAGE_TO_PULL_FULL_NAME}"
+            docker pull ${IMAGE_TO_PULL_FULL_NAME}
 
-            echo "3. 停止并移除旧容器..."
+            echo "停止并删除旧容器 (如果存在)..."
             docker stop ${CONTAINER_NAME} || true
             docker rm ${CONTAINER_NAME} || true
 
-            echo "4. 启动新容器，并注入生产环境密钥..."
+            # [核心修改] 启动新容器，只注入必要的密钥和动态配置
+            echo "启动新容器..."
             docker run -d \
-              -p 8080:8080 \
+              -p ${HOST_PORT}:8080 \
               --name ${CONTAINER_NAME} \
-              --network ${DOCKER_NETWORK} \
+              --network ${DOCKER_NETWORK_NAME} \
               --restart unless-stopped \
               \
-              # [关键] 从 GitHub Secrets 注入环境变量
-              # 容器内的环境变量名 (如 JWTCONFIG_SECRET_KEY) 必须与 Viper 期望的完全一致
-              # 变量的值来自 GitHub Secrets (如 secrets.PROD_JWT_SECRET_KEY)
+              # [关键] 注入 JWT 密钥和 CORS 域名
+              # 容器内的环境变量名 (如 JWTCONFIG_SECRET_KEY) 与 Viper 期望的匹配
+              # 变量的值来自你在 GitHub 设置的 Secrets (如 PROD_JWT_SECRET_KEY)
               -e JWTCONFIG_SECRET_KEY='${{ secrets.PROD_JWT_SECRET_KEY }}' \
               -e JWTCONFIG_REFRESH_SECRET='${{ secrets.PROD_JWT_REFRESH_SECRET }}' \
               -e CORS_ALLOWORIGINS='${{ secrets.PROD_CORS_ALLOW_ORIGINS }}' \
               \
-              # 使用拉取到的镜像启动容器
-              ${FULL_IMAGE_NAME}
+              ${IMAGE_TO_PULL_FULL_NAME}
 
-            echo "✅ 部署成功! Gateway 应用正在运行。"
-
-            # --- 部署后验证 ---
-            echo "等待 10 秒让服务启动..."
+            echo "部署成功! Gateway 应用正在 CVM 的 ${HOST_PORT} 端口上运行。"
             sleep 10
-            echo "显示容器最新日志以供检查:"
+            echo "查看 Gateway 容器最新日志 (用于验证配置是否正确加载):"
             docker logs --tail 100 ${CONTAINER_NAME}
