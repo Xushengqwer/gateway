@@ -192,11 +192,13 @@ services:
     scheme: "http"              # 来自 swagger.json
     publicPaths: # (基于 swagger.json 推断)
       - "/_health"              # GET /api/v1/search/_health (健康检查通常是公开的)
-      - "/search"               # GET /api/v1/search/search (假设搜索是公开的)
+      - "/search"               # GET /api/v1/search/search (搜索）
+      - "/hot-terms"            # GET /api/v1/search/hot-terms (搜索热词)
     routes: []                  # 当前 Swagger 无需认证/权限的路由
 cors: # 对应 cfg.Cors
   allow_origins:
     - "http://localhost:8000"
+    - "http://localhost:3001"
     - "http://127.0.0.1:8000"
   allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
   allow_headers: ["Origin", "Content-Type", "Authorization", "X-Requested-With", "X-Platform", "X-User-ID"]

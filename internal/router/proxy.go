@@ -216,7 +216,25 @@ func createProxyHandler(
 			zap.Any("traceID", traceIDVal),
 		)
 
-		// 1. 检查是否匹配私有路由
+		// --- 1. 优先检查公开路由 ---
+		isPublic := false
+		for _, publicPattern := range svcCfg.PublicPaths {
+			if matchPublicPath(publicPattern, subPathForLookup) {
+				isPublic = true
+				break
+			}
+		}
+
+		if isPublic {
+			// 是公开路由 -> 直接代理
+			logger.Debug("公开路径，直接代理",
+				zap.String("serviceName", svcCfg.Name),
+				zap.String("path", requestPath))
+			proxy.ServeHTTP(c.Writer, c.Request)
+			return // 结束处理
+		}
+
+		// --- 2. 如果不是公开路由，再检查是否匹配私有路由 ---
 		_, foundPrivate := mymiddleware.FindBestMatchingRoute(svcCfg.Routes, subPathForLookup, method)
 
 		if foundPrivate {
@@ -255,31 +273,14 @@ func createProxyHandler(
 			proxy.ServeHTTP(c.Writer, c.Request)
 
 		} else {
-			// 2. 不是私有路由，检查是否匹配公开路由
-			isPublic := false
-			for _, publicPattern := range svcCfg.PublicPaths {
-				if matchPublicPath(publicPattern, subPathForLookup) {
-					isPublic = true
-					break
-				}
-			}
-
-			if isPublic {
-				// 是公开路由 -> 直接代理
-				logger.Debug("公开路径，直接代理",
-					zap.String("serviceName", svcCfg.Name),
-					zap.String("path", requestPath))
-				proxy.ServeHTTP(c.Writer, c.Request)
-			} else {
-				// 3. 既不匹配私有也不匹配公开 -> 拒绝访问 (返回 404 更合适)
-				logger.Warn("路径未匹配任何私有或公开路由，拒绝访问",
-					zap.String("serviceName", svcCfg.Name),
-					zap.String("path", requestPath),
-					zap.String("subPath", subPathForLookup),
-				)
-				response.RespondError(c, http.StatusNotFound, response.ErrCodeClientResourceNotFound, "路径未定义或无权访问")
-				c.Abort()
-			}
+			// --- 3. 既不匹配公开也不匹配私有 -> 拒绝访问 ---
+			logger.Warn("路径未匹配任何私有或公开路由，拒绝访问",
+				zap.String("serviceName", svcCfg.Name),
+				zap.String("path", requestPath),
+				zap.String("subPath", subPathForLookup),
+			)
+			response.RespondError(c, http.StatusNotFound, response.ErrCodeClientResourceNotFound, "路径未定义或无权访问")
+			c.Abort()
 		}
 	}
 }
