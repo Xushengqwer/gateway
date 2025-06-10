@@ -101,7 +101,6 @@ jobs:
               --restart unless-stopped \
               -e JWTCONFIG_SECRET_KEY='${{ secrets.PROD_JWT_SECRET_KEY }}' \
               -e JWTCONFIG_REFRESH_SECRET='${{ secrets.PROD_JWT_REFRESH_SECRET }}' \
-              -e CORS_ALLOWORIGINS='${{ secrets.PROD_CORS_ALLOW_ORIGINS }}' \
               ${IMAGE_TO_PULL_FULL_NAME}
 
             echo "部署成功! Gateway 应用正在 CVM 的 ${HOST_PORT} 端口上运行。"
