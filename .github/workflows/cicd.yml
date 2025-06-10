@@ -77,7 +77,8 @@ jobs:
             export IMAGE_TO_PULL_FULL_NAME="${GHCR_IMAGE_BASE_LOWERCASE}:${IMAGE_TAG_TO_PULL}"
             export CONTAINER_NAME="gateway-app"
             export HOST_PORT="8080"
-            export DOCKER_NETWORK_NAME="doer_infra_doer_xyz_dev_network"
+            export DOCKER_NETWORK_NAME="doer_project_doer_xyz_dev_network"
+
 
             # --- 脚本执行 ---
             echo "登录 GHCR..."
